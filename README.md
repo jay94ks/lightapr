@@ -1,0 +1,52 @@
+# APR (Access-Point Registry) Specification
+
+🌐 **Language**: [English Version](README.en.md) | [한국어 버전](README.md)
+
+---
+
+## 1. 개요 (Overview)
+APR은 Auto-scaling 환경에서 하드코딩된 엔드포인트 없이 런타임에 동적으로 통신망을 조립하는 **'자율 적응형 디스커버리(Self-Adaptive Discovery)'** 프로토콜이다.
+무거운 분산 합의나 과도한 보안 검증 대신, 인메모리 기반의 신속한 서비스 탐색과 경량 통합을 목표로 한다.
+
+## 2. 프로토콜 구성 (Ports & Planes)
+APR 데몬은 단일 프로세스로 독립된 포트를 청취한다.
+1. **MQTT 제어 평면 (Control Plane)**
+   - **Port 1883/8883 (Native TCP MQTT)** & **Port 8083 (WebSocket MQTT)**
+   - 역할: 노드 등록, 토폴로지 상태 전파, 메타데이터 브로드캐스팅 및 비동기 이벤트 전달.
+2. **HTTP 관리/조회 평면 (Management Plane)**
+   - **Port 8080/80 (HTTP REST API)**
+   - 역할: 레지스트리 헬스 체크, 토폴로지 REST 조회, 로드 밸런싱 API (`/resolve`).
+
+## 3. 프로토콜 동작 주기 (Lifecycle & Flow)
+1. **연결 및 인증**: User Name은 역할(role)을 prefix로 하여 생성하고, `APR access key`와 `User Name`을 결합하여 패스워드로 사용한다.
+2. **구현체 등록**: MQTT 연결 성공 시 `apr/node/meta` 토픽에 자신의 메타데이터 `{ role, workers, endpoint }`를 발행한다. (HTTP 엔드포인트를 노출하지 않는 워커 노드나 웹 브라우저 클라이언트는 `endpoint: null` 지정 가능)
+3. **토폴로지 전파**: APR은 신규 노드 정보를 등록하고, 해당 셀 내부 토픽(`apr/{role}`)에 노드 상태 변화를 브로드캐스팅한다.
+4. **직접 통신**: 노드 간 실제 비즈니스 요청/응답은 APR을 거치지 않고, 로컬 메모리에 동기화된 토폴로지를 기반으로 HTTP Point-to-Point 통신한다.
+5. **이벤트 전파**: 서비스 간 비동기 알림이 필요할 경우 `app/{role}` 또는 `app/{role}/{worker}` MQTT 토픽을 보조 채널로 활용한다.
+6. **상태 감쇠 (Grace Period)**: 노드의 MQTT 세션 단절 시 즉시 삭제하지 않고 3분의 유예 시간(`GRACE` 상태)을 부여한다.
+   - 3분 이내 재접속: 기존 세션 및 메타데이터 복구 (`OK` 상태).
+   - 3분 초과: 영구 퇴장(`ERASED`)으로 간주하여 토폴로지 만료 통보를 전파하고 레지스트리에서 제거한다.
+
+## 4. 확장 모델 (Scale-out Architecture)
+- APR은 글로벌(전사) 단일 레지스트리를 지향하지 않는다.
+- 인프라는 복수의 독립된 셀(Cell) 단위로 분할되며, 각 셀마다 독립된 APR 단일 인스턴스가 배치된다.
+- APR 간의 상태 동기화(Replication/Consensus)는 엄격히 배제하며, 완벽한 무상태 격리를 유지한다.
+- 셀 간 통신(Cross-Cell)은 APR이 관여하지 않으며, 셀 경계에 배치된 게이트웨이 노드를 통해 처리한다.
+
+## 5. 클라이언트 SDK & 샘플 코드 (SDKs & Examples)
+APR 프로토콜을 손쉽게 활용할 수 있도록 다국어 공통 SDK와 예제 코드가 제공된다.
+- **SDK 목록 (`sdk/`)**:
+  - `sdk/cpp`: C++17 헤더 및 정적 라이브러리 (`apr_sdk_cpp`)
+  - `sdk/csharp`: .NET 8.0 C# SDK (`Apr.Sdk`)
+  - `sdk/nodejs`: Node.js SDK (`@lightapr/sdk`)
+  - `sdk/ts`: TypeScript SDK (`@lightapr/sdk-ts`)
+- **예제 목록 (`examples/`)**:
+  - `examples/http_node`: 엔드포인트 서버를 갖춘 서비스 노드 예제
+  - `examples/worker_node`: 엔드포인트가 없는 백그라운드 워커 노드 예제
+  - `examples/ts/`, `examples/csharp/`, `examples/cpp/`: 언어별 예제 변형 구현체
+- **모니터링 앱 (`monitor/html/index.html`)**:
+  - LightAPR 상태 관측, 노드 조회, 로드밸런서 테스트 및 웹소켓 이벤트 뷰어 웹 대시보드
+
+## 6. 프로토콜 및 개발 규격 문서
+- 세부 프로토콜 규격: [PROTOCOL.md](PROTOCOL.md) | [English](PROTOCOL.en.md)
+- C++ 개발 지침: [AGENTS.md](AGENTS.md) | [English](AGENTS.en.md)

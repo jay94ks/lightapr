@@ -1,0 +1,17 @@
+{
+  "name": "example-ts-http-node",
+  "version": "0.1.0",
+  "description": "TypeScript HTTP Node Example with Endpoint",
+  "main": "index.ts",
+  "scripts": {
+    "start": "ts-node index.ts"
+  },
+  "dependencies": {
+    "@lightapr/sdk-ts": "file:../../../sdk/ts"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

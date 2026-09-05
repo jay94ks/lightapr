@@ -1,0 +1,12 @@
+{
+  "name": "example-http-node",
+  "version": "0.1.0",
+  "description": "Node.js HTTP Node Example with Endpoint",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@lightapr/sdk": "file:../../sdk/nodejs"
+  }
+}

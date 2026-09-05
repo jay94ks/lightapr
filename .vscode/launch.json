@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug LightAPR (Standalone)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Debug/lightapr.exe",
+            "args": [
+                "--standalone",
+                "--cell-id",
+                "dev-cell",
+                "--access-key",
+                "secretkey",
+                "--port",
+                "18883",
+                "--ws-port",
+                "8083",
+                "--http-port",
+                "8080"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake Build Debug"
+        },
+        {
+            "name": "Run Unit Tests",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/Debug/unit_tests.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake Build Debug"
+        }
+    ]
+}

@@ -1,0 +1,52 @@
+# APR (Access-Point Registry) Specification
+
+🌐 **Language**: [English Version](README.en.md) | [Korean Version](README.md)
+
+---
+
+## 1. Overview
+APR is a **'Self-Adaptive Discovery'** protocol designed to assemble dynamic network topologies at runtime in auto-scaling environments without hardcoded endpoints.
+Rather than employing heavy distributed consensus or excessive security validation, APR focuses on fast in-memory service discovery and lightweight integration.
+
+## 2. Ports & Planes
+An APR daemon listens on independent ports in a single process:
+1. **MQTT Control Plane**
+   - **Port 1883/8883 (Native TCP MQTT)** & **Port 8083 (WebSocket MQTT)**
+   - Role: Node registration, topology state propagation, metadata broadcasting, and asynchronous event delivery.
+2. **HTTP Management/Query Plane**
+   - **Port 8080/80 (HTTP REST API)**
+   - Role: Registry health check, topology REST querying, and load-balancing pool API (`/resolve`).
+
+## 3. Lifecycle & Protocol Flow
+1. **Connection & Authentication**: Generate `Username` prefixed with the server's `role`. Combine `APR access key` and `Username` as the MQTT password.
+2. **Node Registration**: Upon successful MQTT connection, publish metadata `{ role, workers, endpoint }` to topic `apr/node/meta`. (Worker nodes or web browser clients that do not expose an HTTP endpoint specify `"endpoint": null`.)
+3. **Topology Propagation**: APR registers new node metadata and broadcasts state changes to the cell-internal topic `apr/{role}`.
+4. **Direct Point-to-Point Communication**: Actual business requests/responses between nodes bypass APR, communicating directly HTTP Point-to-Point based on the locally synchronized topology.
+5. **Event Delivery**: Asynchronous notifications between services utilize `app/{role}` or `app/{role}/{worker}` MQTT topics as auxiliary channels.
+6. **Grace Period**: When a node's MQTT session disconnects, APR grants a 3-minute grace period (`GRACE` status) instead of immediate deletion.
+   - Reconnect within 3 minutes: Restore existing session and metadata (`OK` status).
+   - Exceed 3 minutes: Treated as permanent termination (`ERASED`), broadcasting expiration to the topology and removing the node from the registry.
+
+## 4. Scale-out Architecture
+- APR does not aim for a single global registry.
+- Infrastructure is divided into multiple independent **Cell** units, with a single independent APR instance deployed per cell.
+- State replication or consensus between APR instances is strictly excluded to maintain complete stateless isolation.
+- Cross-cell communication is handled via gateway nodes at cell boundaries without APR intervention.
+
+## 5. Client SDKs & Sample Code
+Multi-language SDKs and example projects are provided for seamless APR integration:
+- **SDK List (`sdk/`)**:
+  - `sdk/cpp`: C++17 headers and static library (`apr_sdk_cpp`)
+  - `sdk/csharp`: .NET 8.0 C# SDK (`Apr.Sdk`)
+  - `sdk/nodejs`: Node.js SDK (`@lightapr/sdk`)
+  - `sdk/ts`: TypeScript SDK (`@lightapr/sdk-ts`)
+- **Example List (`examples/`)**:
+  - `examples/http_node`: Service node example exposing an HTTP endpoint
+  - `examples/worker_node`: Background worker node example without an HTTP endpoint
+  - `examples/ts/`, `examples/csharp/`, `examples/cpp/`: Language-specific example variations
+- **Monitoring Web App (`monitor/html/index.html`)**:
+  - Web dashboard for LightAPR observability, node registry viewing, load balancer testing, and WebSocket event viewing.
+
+## 6. Specifications & Guidelines
+- Detailed Protocol Specification: [PROTOCOL.md](PROTOCOL.md) | [English](PROTOCOL.en.md)
+- C++ Development Guidelines: [AGENTS.md](AGENTS.md) | [English](AGENTS.en.md)

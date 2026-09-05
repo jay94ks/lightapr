@@ -1,0 +1,16 @@
+{
+  "name": "@lightapr/sdk",
+  "version": "0.1.0",
+  "description": "LightAPR Client SDK for Node.js",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "mqtt": "^5.10.0"
+  },
+  "scripts": {
+    "test": "node index.js"
+  },
+  "keywords": ["lightapr", "service-discovery", "sdk", "mqtt"],
+  "author": "",
+  "license": "MIT"
+}
