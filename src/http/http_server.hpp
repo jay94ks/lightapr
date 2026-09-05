@@ -41,6 +41,7 @@ private:
     http_response route_request(const http_request& req);
 
     asio::ip::tcp::socket socket_;
+    asio::strand<asio::any_io_executor> strand_;
     registry& registry_;
     std::string cell_id_;
     std::chrono::steady_clock::time_point start_time_;

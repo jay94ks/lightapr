@@ -37,6 +37,7 @@ private:
     void close_session();
 
     asio::ip::tcp::socket socket_;
+    asio::strand<asio::any_io_executor> strand_;
     registry& registry_;
     std::string access_key_;
     close_callback on_close_;

@@ -65,8 +65,26 @@ LightAPR 서버 데몬은 Docker Hub 컨테이너 이미지로 제공되며, `1.
   - `MQTT_PORT`: Native TCP MQTT 포트 (기본값: `1883`)
   - `WS_PORT`: WebSocket MQTT 포트 (기본값: `8083`)
   - `HTTP_PORT`: HTTP REST API 포트 (기본값: `8080`)
+  - `WORKER_THREADS`: 이벤트 루프 워커 스레드 수 (기본값: `0`, CPU 코어 수 자동 감지)
   - `LOG_FILE`: 로그 파일 경로 (기본값: `/var/log/lightapr.log`)
   - `STANDALONE`: 독립 실행형 포그라운드 콘솔 로깅 여부 (기본값: `true`)
+  - `CONFIG_FILE`: JSON 설정 파일 경로 (선택 사항, 아래 참고). 파일에 명시된 값이 CLI 기본값을 대체하며, 명시적으로 지정한 다른 CLI 인자/환경 변수가 있으면 그 값이 최종적으로 우선합니다.
+
+### CLI 옵션 및 설정 파일
+LightAPR은 모든 설정을 CLI 인자(`-s/--standalone`, `-c/--cell-id`, `-k/--access-key`, `-p/--port`, `-w/--ws-port`, `-h/--http-port`, `-t/--threads`, `-l/--log-file`)로 받을 수 있으며, 인자가 길어지는 것을 피하려면 `-f/--config <경로>` 옵션으로 JSON 설정 파일을 지정할 수도 있습니다. 예시 파일은 [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json)에 있습니다:
+```json
+{
+    "standalone": false,
+    "cell_id": "default_cell",
+    "access_key": "lightapr_secret_key",
+    "mqtt_port": 1883,
+    "ws_port": 8083,
+    "http_port": 8080,
+    "threads": 0,
+    "log_file": "lightapr.log"
+}
+```
+우선순위: 내장 기본값 → `--config` 파일 → 명시적으로 지정한 다른 CLI 인자(해당 필드에 대해 항상 최우선).
 
 ### Docker CLI 실행 예시
 ```bash

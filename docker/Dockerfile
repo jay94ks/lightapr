@@ -37,8 +37,10 @@ ENV CELL_ID=default_cell \
     MQTT_PORT=1883 \
     WS_PORT=8083 \
     HTTP_PORT=8080 \
+    WORKER_THREADS=0 \
     LOG_FILE=/var/log/lightapr.log \
-    STANDALONE=true
+    STANDALONE=true \
+    CONFIG_FILE=
 
 # Expose default MQTT (1883), WebSocket MQTT (8083), HTTP Management (8080) ports
 EXPOSE 1883 8083 8080

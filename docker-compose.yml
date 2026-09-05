@@ -18,5 +18,7 @@ services:
       - MQTT_PORT=1883
       - WS_PORT=8083
       - HTTP_PORT=8080
+      - WORKER_THREADS=0
       - LOG_FILE=/var/log/lightapr.log
       - STANDALONE=true
+      # - CONFIG_FILE=/etc/lightapr/config.json  # optional: replaces the CLI args above with a JSON config file

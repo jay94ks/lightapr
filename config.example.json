@@ -1,0 +1,10 @@
+{
+    "standalone": false,
+    "cell_id": "default_cell",
+    "access_key": "lightapr_secret_key",
+    "mqtt_port": 1883,
+    "ws_port": 8083,
+    "http_port": 8080,
+    "threads": 0,
+    "log_file": "lightapr.log"
+}

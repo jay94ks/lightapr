@@ -8,10 +8,16 @@ MQTT_PORT="${MQTT_PORT:-1883}"
 WS_PORT="${WS_PORT:-8083}"
 HTTP_PORT="${HTTP_PORT:-8080}"
 LOG_FILE="${LOG_FILE:-/var/log/lightapr.log}"
+WORKER_THREADS="${WORKER_THREADS:-0}"
 STANDALONE="${STANDALONE:-true}"
+CONFIG_FILE="${CONFIG_FILE:-}"
 
 # Build argument array
 ARGS=""
+
+if [ -n "$CONFIG_FILE" ]; then
+    ARGS="$ARGS --config $CONFIG_FILE"
+fi
 
 if [ "$STANDALONE" = "true" ] || [ "$STANDALONE" = "1" ]; then
     ARGS="$ARGS --standalone"
@@ -35,6 +41,10 @@ fi
 
 if [ -n "$HTTP_PORT" ]; then
     ARGS="$ARGS --http-port $HTTP_PORT"
+fi
+
+if [ -n "$WORKER_THREADS" ] && [ "$WORKER_THREADS" -gt 0 ]; then
+    ARGS="$ARGS --threads $WORKER_THREADS"
 fi
 
 if [ -n "$LOG_FILE" ]; then

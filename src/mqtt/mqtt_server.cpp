@@ -36,7 +36,7 @@ static bool topic_matches(const std::string& pattern, const std::string& topic) 
 }
 
 mqtt_session::mqtt_session(asio::ip::tcp::socket socket, registry& reg, const std::string& access_key, close_callback on_close)
-    : socket_(std::move(socket)), registry_(reg), access_key_(access_key), on_close_(std::move(on_close)) {
+    : socket_(std::move(socket)), strand_(asio::make_strand(socket_.get_executor())), registry_(reg), access_key_(access_key), on_close_(std::move(on_close)) {
     std::error_code ec;
     auto remote = socket_.remote_endpoint(ec);
     if (!ec) {
@@ -75,13 +75,13 @@ void mqtt_session::send_raw(const std::vector<uint8_t>& data) {
         send_buf = std::make_shared<std::vector<uint8_t>>(data);
     }
 
-    asio::async_write(socket_, asio::buffer(*send_buf), [self, this, send_buf](std::error_code ec, size_t /*bytes*/) {
+    asio::async_write(socket_, asio::buffer(*send_buf), asio::bind_executor(strand_, [self, this, send_buf](std::error_code ec, size_t /*bytes*/) {
         if (ec) {
             LOG_WARN("MQTT write error: " + ec.message());
             close_session();
             if (on_close_) on_close_(self);
         }
-    });
+    }));
 }
 
 bool mqtt_session::matches_topic(const std::string& topic) const {
@@ -97,7 +97,7 @@ bool mqtt_session::matches_topic(const std::string& topic) const {
 void mqtt_session::do_read() {
     auto self = shared_from_this();
     socket_.async_read_some(asio::buffer(rx_buffer_, sizeof(rx_buffer_)),
-        [self, this](std::error_code ec, size_t bytes_transferred) {
+        asio::bind_executor(strand_, [self, this](std::error_code ec, size_t bytes_transferred) {
             if (ec) {
                 close_session();
                 if (on_close_) on_close_(self);
@@ -126,11 +126,11 @@ void mqtt_session::do_read() {
                             rx_stream_buffer_.erase(rx_stream_buffer_.begin(), rx_stream_buffer_.begin() + header_end_pos + 4);
 
                             auto resp_buf = std::make_shared<std::string>(std::move(response));
-                            asio::async_write(socket_, asio::buffer(*resp_buf), [self, resp_buf](std::error_code w_ec, size_t) {
+                            asio::async_write(socket_, asio::buffer(*resp_buf), asio::bind_executor(strand_, [self, resp_buf](std::error_code w_ec, size_t) {
                                 if (w_ec) {
                                     LOG_WARN("Failed to write WS handshake response: " + w_ec.message());
                                 }
-                            });
+                            }));
                         } else {
                             close_session();
                             if (on_close_) on_close_(self);
@@ -174,7 +174,7 @@ void mqtt_session::do_read() {
                     } else if (frame.opcode == 0x09) { // Ping frame
                         auto pong = websocket_codec::encode_frame(reinterpret_cast<const uint8_t*>(frame.payload.data()), frame.payload.size(), 0x0A);
                         auto p_buf = std::make_shared<std::vector<uint8_t>>(std::move(pong));
-                        asio::async_write(socket_, asio::buffer(*p_buf), [self, p_buf](std::error_code, size_t){});
+                        asio::async_write(socket_, asio::buffer(*p_buf), asio::bind_executor(strand_, [self, p_buf](std::error_code, size_t){}));
                     }
                 }
             } else {
@@ -182,7 +182,7 @@ void mqtt_session::do_read() {
             }
 
             do_read();
-        });
+        }));
 }
 
 void mqtt_session::process_packet(const uint8_t* data, size_t len) {

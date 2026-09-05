@@ -18,6 +18,13 @@ int main(int argc, char* argv[]) {
     if (const char* env_key = std::getenv("ACCESS_KEY")) {
         opts.access_key = env_key;
     }
+    if (opts.threads == 0) {
+        if (const char* env_threads = std::getenv("WORKER_THREADS")) {
+            opts.threads = static_cast<size_t>(std::stoul(env_threads));
+        } else if (const char* env_threads = std::getenv("THREADS")) {
+            opts.threads = static_cast<size_t>(std::stoul(env_threads));
+        }
+    }
 
     // Initialize logger
     auto logger = std::make_shared<apr::async_logger>(opts.standalone, opts.log_file);
@@ -75,8 +82,34 @@ int main(int argc, char* argv[]) {
         apr::http_server http_srv(io_ctx, opts.http_port, reg, opts.cell_id);
         http_srv.start();
 
-        LOG_INFO("LightAPR initialized successfully. Running I/O event loop...");
+        size_t num_threads = opts.threads;
+        if (num_threads == 0) {
+            num_threads = std::max<size_t>(2, std::thread::hardware_concurrency());
+        }
+
+        LOG_INFO("LightAPR initialized successfully. Running I/O event loop with " + std::to_string(num_threads) + " worker threads...");
+
+        auto work_guard = asio::make_work_guard(io_ctx);
+        std::vector<std::thread> worker_threads;
+        worker_threads.reserve(num_threads - 1);
+
+        for (size_t i = 0; i < num_threads - 1; ++i) {
+            worker_threads.emplace_back([&io_ctx, i]() {
+                try {
+                    io_ctx.run();
+                } catch (const std::exception& e) {
+                    LOG_ERROR("Worker thread " + std::to_string(i + 1) + " error: " + e.what());
+                }
+            });
+        }
+
         io_ctx.run();
+
+        for (auto& t : worker_threads) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Fatal error in main event loop: ") + e.what());
         return 1;

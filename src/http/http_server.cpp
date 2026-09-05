@@ -61,6 +61,7 @@ http_session::http_session(asio::ip::tcp::socket socket,
                            const std::string& cell_id,
                            std::chrono::steady_clock::time_point start_time)
     : socket_(std::move(socket)),
+      strand_(asio::make_strand(socket_.get_executor())),
       registry_(reg),
       cell_id_(cell_id),
       start_time_(start_time) {}
@@ -72,7 +73,7 @@ void http_session::start() {
 void http_session::do_read() {
     auto self = shared_from_this();
     socket_.async_read_some(asio::buffer(rx_buffer_, sizeof(rx_buffer_)),
-        [self, this](std::error_code ec, size_t bytes_transferred) {
+        asio::bind_executor(strand_, [self, this](std::error_code ec, size_t bytes_transferred) {
             if (!ec) {
                 request_data_.append(rx_buffer_, bytes_transferred);
                 if (request_data_.find("\r\n\r\n") != std::string::npos) {
@@ -81,7 +82,7 @@ void http_session::do_read() {
                     do_read();
                 }
             }
-        });
+        }));
 }
 
 void http_session::handle_request(const std::string& raw_request) {
@@ -98,10 +99,10 @@ void http_session::handle_request(const std::string& raw_request) {
     response_data_ = ss.str();
     auto self = shared_from_this();
     asio::async_write(socket_, asio::buffer(response_data_),
-        [self, this](std::error_code /*ec*/, size_t /*bytes*/) {
+        asio::bind_executor(strand_, [self, this](std::error_code /*ec*/, size_t /*bytes*/) {
             std::error_code ignore_ec;
             socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ignore_ec);
-        });
+        }));
 }
 
 http_response http_session::route_request(const http_request& req) {

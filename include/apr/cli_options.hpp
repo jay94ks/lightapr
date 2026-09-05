@@ -13,9 +13,15 @@ struct cli_options {
     uint16_t mqtt_port{1883};
     uint16_t ws_port{8083};
     uint16_t http_port{8080};
+    size_t threads{0};
     std::string log_file{"lightapr.log"};
 
     static cli_options parse(int argc, char* argv[]);
+
+    // Loads options from a JSON config file, overriding any field present in the file.
+    // Fields absent from the file are left untouched in `opts`. Returns false on I/O
+    // or parse failure.
+    static bool load_from_file(const std::string& path, cli_options& opts);
 };
 
 } // namespace apr

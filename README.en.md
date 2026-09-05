@@ -65,8 +65,26 @@ The LightAPR server daemon is published as a Docker Hub container image availabl
   - `MQTT_PORT`: Native TCP MQTT port (Default: `1883`)
   - `WS_PORT`: WebSocket MQTT port (Default: `8083`)
   - `HTTP_PORT`: HTTP REST API port (Default: `8080`)
+  - `WORKER_THREADS`: Event loop worker thread count (Default: `0`, auto-detect CPU cores)
   - `LOG_FILE`: Log file path (Default: `/var/log/lightapr.log`)
   - `STANDALONE`: Standalone console logging mode (Default: `true`)
+  - `CONFIG_FILE`: Path to a JSON config file (optional; see below). Its values replace the CLI defaults, and are themselves overridden by any other CLI flag/env var set explicitly.
+
+### CLI Options & Config File
+LightAPR accepts every setting as a CLI flag (`-s/--standalone`, `-c/--cell-id`, `-k/--access-key`, `-p/--port`, `-w/--ws-port`, `-h/--http-port`, `-t/--threads`, `-l/--log-file`), or you can point it at a JSON config file with `-f/--config <path>` to avoid a long argument list. A sample is provided at [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json):
+```json
+{
+    "standalone": false,
+    "cell_id": "default_cell",
+    "access_key": "lightapr_secret_key",
+    "mqtt_port": 1883,
+    "ws_port": 8083,
+    "http_port": 8080,
+    "threads": 0,
+    "log_file": "lightapr.log"
+}
+```
+Precedence: built-in defaults → `--config` file → other explicit CLI flags (which always win for the fields they set).
 
 ### Docker CLI Quickstart
 ```bash
