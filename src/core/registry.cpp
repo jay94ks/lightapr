@@ -16,10 +16,32 @@ static int64_t get_current_unix_timestamp() {
 registry::registry() = default;
 registry::~registry() = default;
 
-void registry::set_event_callback(node_event_callback cb) {
+uint64_t registry::add_event_callback(node_event_callback cb) {
     std::unique_lock lock(mutex_);
-    event_cb_ = std::move(cb);
+    uint64_t token = event_cb_id_counter_++;
+    event_cbs_.emplace_back(token, std::move(cb));
+    return token;
 }
+
+void registry::remove_event_callback(uint64_t token) {
+    std::unique_lock lock(mutex_);
+    event_cbs_.erase(
+        std::remove_if(event_cbs_.begin(), event_cbs_.end(),
+                        [token](const auto& entry) { return entry.first == token; }),
+        event_cbs_.end());
+}
+
+namespace {
+std::vector<node_event_callback> snapshot_callbacks(
+    const std::vector<std::pair<uint64_t, node_event_callback>>& event_cbs) {
+    std::vector<node_event_callback> cbs;
+    cbs.reserve(event_cbs.size());
+    for (const auto& [token, cb] : event_cbs) {
+        cbs.push_back(cb);
+    }
+    return cbs;
+}
+} // namespace
 
 std::string registry::generate_node_id() {
     uint64_t counter = id_counter_++;
@@ -48,17 +70,15 @@ node_info registry::register_or_update_node(const std::string& role,
     }
 
     auto it = nodes_.find(node_id);
-    node_info node;
     if (it != nodes_.end()) {
-        node = it->second;
-        node.role = role;
-        node.workers = workers;
-        node.endpoint = final_ep;
-        node.status = node_status::ok;
-        node.active_at = now;
-        node.expires_in.reset();
-        it->second = node;
+        it->second.role = role;
+        it->second.workers = workers;
+        it->second.endpoint = final_ep;
+        it->second.status = node_status::ok;
+        it->second.active_at = now;
+        it->second.expires_in.reset();
     } else {
+        node_info node;
         node.id = node_id;
         node.role = role;
         node.workers = workers;
@@ -67,19 +87,22 @@ node_info registry::register_or_update_node(const std::string& role,
         node.added_at = now;
         node.active_at = now;
         node.expires_in.reset();
-        nodes_[node_id] = node;
+        it = nodes_.emplace(node_id, std::move(node)).first;
 
         // Estimate memory usage for metadata tracking
         memory_tracker::instance().add_meta_bytes(sizeof(node_info) + role.size() + node_id.size());
     }
 
-    node_event_callback cb = event_cb_;
+    // Snapshot for use after the lock is released (returned to the caller and
+    // passed to observers below).
+    node_info node = it->second;
+    std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
     lock.unlock();
 
     LOG_INFO("Registered node: " + node.id + " (role: " + node.role + ")");
 
-    if (cb) {
-        cb(node);
+    for (const auto& cb : cbs) {
+        if (cb) cb(node);
     }
 
     return node;
@@ -96,13 +119,13 @@ bool registry::mark_node_grace(const std::string& node_id) {
     it->second.expires_in = 180; // 3-minute grace period
 
     node_info updated_node = it->second;
-    node_event_callback cb = event_cb_;
+    std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
     lock.unlock();
 
     LOG_INFO("Node entered grace period: " + node_id);
 
-    if (cb) {
-        cb(updated_node);
+    for (const auto& cb : cbs) {
+        if (cb) cb(updated_node);
     }
     return true;
 }
@@ -118,13 +141,13 @@ bool registry::restore_node_active(const std::string& node_id) {
     it->second.expires_in.reset();
 
     node_info updated_node = it->second;
-    node_event_callback cb = event_cb_;
+    std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
     lock.unlock();
 
     LOG_INFO("Node restored to OK: " + node_id);
 
-    if (cb) {
-        cb(updated_node);
+    for (const auto& cb : cbs) {
+        if (cb) cb(updated_node);
     }
     return true;
 }
@@ -141,13 +164,13 @@ bool registry::remove_node_permanently(const std::string& node_id) {
     nodes_.erase(it);
     memory_tracker::instance().add_meta_bytes(-static_cast<int64_t>(sizeof(node_info) + erased_node.role.size() + erased_node.id.size()));
 
-    node_event_callback cb = event_cb_;
+    std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
     lock.unlock();
 
     LOG_INFO("Permanently removed node: " + node_id);
 
-    if (cb) {
-        cb(erased_node);
+    for (const auto& cb : cbs) {
+        if (cb) cb(erased_node);
     }
     return true;
 }
@@ -215,13 +238,13 @@ std::pair<size_t, std::vector<node_info>> registry::query_registry(
             if (!found_worker) continue;
         }
 
-        auto n = node;
+        node_info n = node;
         if (n.status == node_status::grace) {
             int64_t elapsed = now - n.active_at;
             int64_t remaining = 180 - elapsed;
             n.expires_in = (remaining > 0) ? remaining : 0;
         }
-        matched.push_back(n);
+        matched.push_back(std::move(n));
     }
 
     size_t total = matched.size();

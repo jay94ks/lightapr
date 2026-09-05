@@ -2,8 +2,14 @@ add_executable(unit_tests
     unit/test_registry.cpp
     unit/test_mqtt_packet.cpp
     unit/test_websocket.cpp
+    unit/test_cli_options.cpp
+    unit/test_stream_accumulator.cpp
+    unit/test_registry_concurrency.cpp
+    unit/test_http_server.cpp
+    unit/test_connection_guard.cpp
     ${CORE_SOURCES}
     ${MQTT_SOURCES}
+    ${HTTP_SOURCES}
 )
 
 target_link_libraries(unit_tests PRIVATE nlohmann_json::nlohmann_json)

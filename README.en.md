@@ -67,11 +67,48 @@ The LightAPR server daemon is published as a Docker Hub container image availabl
   - `HTTP_PORT`: HTTP REST API port (Default: `8080`)
   - `WORKER_THREADS`: Event loop worker thread count (Default: `0`, auto-detect CPU cores)
   - `LOG_FILE`: Log file path (Default: `/var/log/lightapr.log`)
+  - `LOG_LEVEL`: Minimum log level: `debug`|`info`|`warn`|`error` (Default: `info`)
   - `STANDALONE`: Standalone console logging mode (Default: `true`)
   - `CONFIG_FILE`: Path to a JSON config file (optional; see below). Its values replace the CLI defaults, and are themselves overridden by any other CLI flag/env var set explicitly.
+  - `IDLE_TIMEOUT`: Seconds a connection may sit idle (no completed read) before the server closes it (Default: `90`)
+  - `MAX_BUFFER_BYTES`: Max bytes a single session may buffer before an in-progress request/frame is considered complete; exceeding it closes the connection (Default: `262144`, 256 KiB)
+  - `MAX_CONNECTIONS`: Process-wide cap on simultaneously open connections across MQTT (TCP+WS) and HTTP combined; `0` = unlimited (Default: `10000`)
+  - `MAX_CONNECTIONS_PER_IP`: Max simultaneous connections from a single source IP, across all listeners; `0` = unlimited (Default: `100`)
+  - `MAX_NEW_CONNECTIONS_PER_IP`: Max new connections a single source IP may open within `CONNECTION_RATE_WINDOW_SEC`; `0` = unlimited (Default: `20`)
+  - `CONNECTION_RATE_WINDOW_SEC`: Sliding window (seconds) used by `MAX_NEW_CONNECTIONS_PER_IP` (Default: `10`)
+  - `MAX_REQUESTS_PER_CONNECTION`: Max HTTP requests served over one keep-alive connection before the server closes it (forcing a reconnect, which is then rate-limited again); `0` = unlimited (Default: `10000`)
+
+### High-Load & DDoS Resilience
+LightAPR is designed to survive connection floods and abusive clients without exhausting server resources:
+- **Connection admission control**: every accepted socket (MQTT TCP, MQTT WebSocket, and HTTP share one process-wide guard) is checked against `MAX_CONNECTIONS`, `MAX_CONNECTIONS_PER_IP`, and the `MAX_NEW_CONNECTIONS_PER_IP`/`CONNECTION_RATE_WINDOW_SEC` rate limit **before** a session object is even created — a rejected connection costs one map lookup and an immediate socket close, nothing more.
+- **Idle & buffer-size caps**: every session (`IDLE_TIMEOUT`, `MAX_BUFFER_BYTES`) is force-closed if it goes quiet too long or tries to buffer an unreasonably large partial request/frame — this bounds a slow/stalled client's resource footprint regardless of intent.
+- **MQTT brute-force mitigation**: a failed `CONNECT` (bad credentials or malformed packet) now closes the connection immediately after the error response, instead of allowing unlimited retry attempts on one socket — every retry has to reconnect, and reconnects are rate-limited above.
+- **HTTP keep-alive abuse mitigation**: `MAX_REQUESTS_PER_CONNECTION` bounds how many requests a single connection can push through before being forced to reconnect (and pass the connection-rate check again), so keep-alive can't be used to bypass per-IP throttling.
 
 ### CLI Options & Config File
-LightAPR accepts every setting as a CLI flag (`-s/--standalone`, `-c/--cell-id`, `-k/--access-key`, `-p/--port`, `-w/--ws-port`, `-h/--http-port`, `-t/--threads`, `-l/--log-file`), or you can point it at a JSON config file with `-f/--config <path>` to avoid a long argument list. A sample is provided at [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json):
+LightAPR accepts every setting as a CLI flag, or you can point it at a JSON config file with `-f/--config <path>` to avoid a long argument list:
+
+| Flag | Description | Default |
+|---|---|---|
+| `-s`, `--standalone` | Run in the foreground with console logging | daemon mode |
+| `-c`, `--cell-id` | Cell identifier | `default_cell` |
+| `-k`, `--access-key` | MQTT access authentication key | `lightapr_secret_key` |
+| `-p`, `--port` | Native TCP MQTT port | `1883` |
+| `-w`, `--ws-port` | WebSocket MQTT port | `8083` |
+| `-h`, `--http-port` | HTTP REST API port | `8080` |
+| `-t`, `--threads` | Event loop worker thread count (`0` = auto-detect) | `0` |
+| `-l`, `--log-file` | Log file path (daemon mode) | `lightapr.log` |
+| `-v`, `--log-level` | Minimum log level: `debug`\|`info`\|`warn`\|`error` | `info` |
+| `-f`, `--config` | Path to a JSON config file | - |
+| `--idle-timeout` | Idle session timeout, seconds | `90` |
+| `--max-buffer-bytes` | Max buffered bytes per session | `262144` |
+| `--max-connections` | Process-wide connection cap (`0` = unlimited) | `10000` |
+| `--max-connections-per-ip` | Per-source-IP connection cap (`0` = unlimited) | `100` |
+| `--max-new-connections-per-ip` | Per-source-IP new-connection rate cap (`0` = unlimited) | `20` |
+| `--connection-rate-window-sec` | Rate-limit window, seconds | `10` |
+| `--max-requests-per-connection` | Max HTTP requests per keep-alive connection (`0` = unlimited) | `10000` |
+
+A sample config file is provided at [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json):
 ```json
 {
     "standalone": false,
@@ -81,10 +118,18 @@ LightAPR accepts every setting as a CLI flag (`-s/--standalone`, `-c/--cell-id`,
     "ws_port": 8083,
     "http_port": 8080,
     "threads": 0,
-    "log_file": "lightapr.log"
+    "log_file": "lightapr.log",
+    "log_level": "info",
+    "session_idle_timeout_sec": 90,
+    "max_session_buffer_bytes": 262144,
+    "max_connections": 10000,
+    "max_connections_per_ip": 100,
+    "max_new_connections_per_ip": 20,
+    "connection_rate_window_sec": 10,
+    "max_requests_per_connection": 10000
 }
 ```
-Precedence: built-in defaults → `--config` file → other explicit CLI flags (which always win for the fields they set).
+Precedence: built-in defaults → `--config` file → other explicit CLI flags (which always win for the fields they set, regardless of argument order).
 
 ### Docker CLI Quickstart
 ```bash
@@ -125,6 +170,9 @@ services:
       - HTTP_PORT=8080
       - LOG_FILE=/var/log/lightapr.log
       - STANDALONE=true
+      - MAX_CONNECTIONS=10000
+      - MAX_CONNECTIONS_PER_IP=100
+      - MAX_NEW_CONNECTIONS_PER_IP=20
 ```
 
 ```bash

@@ -2,187 +2,193 @@
 #include "mqtt_packet.hpp"
 #include "websocket_codec.hpp"
 #include "apr/memory_tracker.hpp"
+#include "apr/mqtt_topic.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
+#include <string_view>
 
 namespace apr {
 
-static bool topic_matches(const std::string& pattern, const std::string& topic) {
-    if (pattern == "#") return true;
-    if (pattern == topic) return true;
-
-    size_t p_idx = 0, t_idx = 0;
-    while (p_idx < pattern.size() && t_idx < topic.size()) {
-        if (pattern[p_idx] == '#') {
-            return true;
-        }
-        if (pattern[p_idx] == '+') {
-            while (p_idx < pattern.size() && pattern[p_idx] != '/') p_idx++;
-            while (t_idx < topic.size() && topic[t_idx] != '/') t_idx++;
-            if (p_idx < pattern.size() && pattern[p_idx] == '/') p_idx++;
-            if (t_idx < topic.size() && topic[t_idx] == '/') t_idx++;
-            continue;
-        }
-        if (pattern[p_idx] != topic[t_idx]) {
-            return false;
-        }
-        p_idx++;
-        t_idx++;
-    }
-
-    if (p_idx == pattern.size() && t_idx == topic.size()) return true;
-    if (p_idx < pattern.size() && pattern[p_idx] == '#' && p_idx == pattern.size() - 1) return true;
-    return false;
-}
-
-mqtt_session::mqtt_session(asio::ip::tcp::socket socket, registry& reg, const std::string& access_key, close_callback on_close)
-    : socket_(std::move(socket)), strand_(asio::make_strand(socket_.get_executor())), registry_(reg), access_key_(access_key), on_close_(std::move(on_close)) {
-    std::error_code ec;
-    auto remote = socket_.remote_endpoint(ec);
-    if (!ec) {
-        peer_ip_ = remote.address().to_string();
-    }
+mqtt_session::mqtt_session(asio::ip::tcp::socket socket, registry& reg, const std::string& access_key, close_callback on_close,
+                           connection_guard& conn_guard, size_t max_buffer_bytes, std::chrono::seconds idle_timeout)
+    : tcp_session_base<mqtt_session, 4096>(std::move(socket), idle_timeout, max_buffer_bytes),
+      registry_(reg), access_key_(access_key), on_close_(std::move(on_close)), conn_guard_(conn_guard) {
 }
 
 mqtt_session::~mqtt_session() {
     close_session();
 }
 
-void mqtt_session::close_session() {
-    if (!closed_) {
-        closed_ = true;
-        std::error_code ec;
-        socket_.close(ec);
-        if (!node_id_.empty()) {
-            registry_.mark_node_grace(node_id_);
-        }
+void mqtt_session::on_before_close() {
+    conn_guard_.release(peer_ip_);
+    if (!node_id_.empty()) {
+        registry_.mark_node_grace(node_id_);
     }
+}
+
+void mqtt_session::on_session_closed() {
+    if (on_close_) on_close_(shared_from_this());
 }
 
 void mqtt_session::start() {
-    do_read();
+    start_read_loop();
 }
 
 void mqtt_session::send_raw(const std::vector<uint8_t>& data) {
-    auto self = shared_from_this();
-    memory_tracker::instance().add_mqtt_bytes(data.size());
+    send_raw(std::make_shared<const std::vector<uint8_t>>(data), /*already_framed=*/false);
+}
 
-    std::shared_ptr<std::vector<uint8_t>> send_buf;
-    if (is_websocket_) {
-        auto framed = websocket_codec::encode_frame(data.data(), data.size(), 0x02);
-        send_buf = std::make_shared<std::vector<uint8_t>>(std::move(framed));
-    } else {
-        send_buf = std::make_shared<std::vector<uint8_t>>(data);
+void mqtt_session::send_raw(std::shared_ptr<const std::vector<uint8_t>> data, bool already_framed) {
+    auto self = shared_from_this();
+
+    std::shared_ptr<const std::vector<uint8_t>> send_buf = data;
+    if (is_websocket_ && !already_framed) {
+        auto framed = websocket_codec::encode_frame(data->data(), data->size(), 0x02);
+        send_buf = std::make_shared<const std::vector<uint8_t>>(std::move(framed));
     }
+
+    memory_tracker::instance().add_mqtt_bytes(send_buf->size());
 
     asio::async_write(socket_, asio::buffer(*send_buf), asio::bind_executor(strand_, [self, this, send_buf](std::error_code ec, size_t /*bytes*/) {
         if (ec) {
             LOG_WARN("MQTT write error: " + ec.message());
             close_session();
-            if (on_close_) on_close_(self);
+            on_session_closed();
         }
+    }));
+}
+
+void mqtt_session::send_raw_and_close(const std::vector<uint8_t>& data) {
+    closing_ = true;
+    auto self = shared_from_this();
+
+    std::shared_ptr<const std::vector<uint8_t>> send_buf;
+    if (is_websocket_) {
+        auto framed = websocket_codec::encode_frame(data.data(), data.size(), 0x02);
+        send_buf = std::make_shared<const std::vector<uint8_t>>(std::move(framed));
+    } else {
+        send_buf = std::make_shared<const std::vector<uint8_t>>(data);
+    }
+
+    memory_tracker::instance().add_mqtt_bytes(send_buf->size());
+
+    asio::async_write(socket_, asio::buffer(*send_buf), asio::bind_executor(strand_, [self, this, send_buf](std::error_code ec, size_t /*bytes*/) {
+        if (ec) {
+            LOG_WARN("MQTT write error: " + ec.message());
+        }
+        close_session();
+        on_session_closed();
     }));
 }
 
 bool mqtt_session::matches_topic(const std::string& topic) const {
     std::lock_guard<std::mutex> lock(sub_mutex_);
     for (const auto& pat : subscriptions_) {
-        if (topic_matches(pat, topic)) {
+        if (mqtt_topic::matches(pat, topic)) {
             return true;
         }
     }
     return false;
 }
 
-void mqtt_session::do_read() {
-    auto self = shared_from_this();
-    socket_.async_read_some(asio::buffer(rx_buffer_, sizeof(rx_buffer_)),
-        asio::bind_executor(strand_, [self, this](std::error_code ec, size_t bytes_transferred) {
-            if (ec) {
-                close_session();
-                if (on_close_) on_close_(self);
-                return;
-            }
+void mqtt_session::on_bytes_read(const uint8_t* data, size_t bytes_transferred) {
+    auto self = shared_from_this(); // kept alive for async writes issued below
+    memory_tracker::instance().add_mqtt_bytes(bytes_transferred);
 
-            memory_tracker::instance().add_mqtt_bytes(bytes_transferred);
+    if (!ws_handshake_done_) {
+        rx_acc_.append(data, bytes_transferred);
 
-            if (!ws_handshake_done_) {
-                rx_stream_buffer_.insert(rx_stream_buffer_.end(), rx_buffer_, rx_buffer_ + bytes_transferred);
-                std::string req_str(reinterpret_cast<const char*>(rx_stream_buffer_.data()), rx_stream_buffer_.size());
+        if (exceeds_buffer_cap(rx_acc_.total_capacity())) {
+            LOG_WARN("MQTT session exceeded max buffer size before handshake completed; closing peer: " + peer_ip_);
+            close_session();
+            on_session_closed();
+            return;
+        }
 
-                if (req_str.find("GET ") == 0 || req_str.find("get ") == 0) {
-                    auto header_end_pos = req_str.find("\r\n\r\n");
-                    if (header_end_pos != std::string::npos) {
-                        std::string ws_key, ws_protocol;
-                        if (websocket_codec::parse_handshake_request(req_str, ws_key, ws_protocol)) {
-                            std::string accept_key = websocket_codec::compute_accept_key(ws_key);
-                            std::string response = websocket_codec::generate_handshake_response(accept_key, "mqtt");
+        std::string_view req_view(reinterpret_cast<const char*>(rx_acc_.data()), rx_acc_.size());
 
-                            is_websocket_ = true;
-                            ws_handshake_done_ = true;
-                            LOG_INFO("WebSocket MQTT handshake accepted for peer: " + peer_ip_);
+        if (req_view.substr(0, 4) == "GET " || req_view.substr(0, 4) == "get ") {
+            auto header_end_pos = req_view.find("\r\n\r\n");
+            if (header_end_pos != std::string_view::npos) {
+                std::string req_str(req_view); // websocket_codec parses a std::string
+                std::string ws_key, ws_protocol;
+                if (websocket_codec::parse_handshake_request(req_str, ws_key, ws_protocol)) {
+                    std::string accept_key = websocket_codec::compute_accept_key(ws_key);
+                    std::string response = websocket_codec::generate_handshake_response(accept_key, "mqtt");
 
-                            // Erase handshake HTTP request from stream buffer
-                            rx_stream_buffer_.erase(rx_stream_buffer_.begin(), rx_stream_buffer_.begin() + header_end_pos + 4);
-
-                            auto resp_buf = std::make_shared<std::string>(std::move(response));
-                            asio::async_write(socket_, asio::buffer(*resp_buf), asio::bind_executor(strand_, [self, resp_buf](std::error_code w_ec, size_t) {
-                                if (w_ec) {
-                                    LOG_WARN("Failed to write WS handshake response: " + w_ec.message());
-                                }
-                            }));
-                        } else {
-                            close_session();
-                            if (on_close_) on_close_(self);
-                            return;
-                        }
-                    } else {
-                        // Wait for full HTTP headers
-                        do_read();
-                        return;
-                    }
-                } else {
-                    // Regular TCP MQTT connection
+                    is_websocket_ = true;
                     ws_handshake_done_ = true;
-                    is_websocket_ = false;
-                    process_packet(rx_stream_buffer_.data(), rx_stream_buffer_.size());
-                    rx_stream_buffer_.clear();
-                    do_read();
+                    LOG_INFO("WebSocket MQTT handshake accepted for peer: " + peer_ip_);
+
+                    // Consume the handshake HTTP request from the stream buffer
+                    rx_acc_.consume(header_end_pos + 4);
+                    rx_acc_.compact_if_needed();
+
+                    auto resp_buf = std::make_shared<std::string>(std::move(response));
+                    asio::async_write(socket_, asio::buffer(*resp_buf), asio::bind_executor(strand_, [self, resp_buf](std::error_code w_ec, size_t) {
+                        if (w_ec) {
+                            LOG_WARN("Failed to write WS handshake response: " + w_ec.message());
+                        }
+                    }));
+                } else {
+                    close_session();
+                    on_session_closed();
                     return;
                 }
-            } else if (is_websocket_ && bytes_transferred > 0) {
-                rx_stream_buffer_.insert(rx_stream_buffer_.end(), rx_buffer_, rx_buffer_ + bytes_transferred);
-            }
-
-            if (is_websocket_) {
-                while (!rx_stream_buffer_.empty()) {
-                    ws_frame frame;
-                    size_t consumed = websocket_codec::decode_frame(rx_stream_buffer_.data(), rx_stream_buffer_.size(), frame);
-                    if (consumed == 0) {
-                        break; // Wait for full WS frame
-                    }
-
-                    rx_stream_buffer_.erase(rx_stream_buffer_.begin(), rx_stream_buffer_.begin() + consumed);
-
-                    if (frame.opcode == 0x01 || frame.opcode == 0x02) { // Text or Binary frame
-                        process_packet(reinterpret_cast<const uint8_t*>(frame.payload.data()), frame.payload.size());
-                    } else if (frame.opcode == 0x08) { // Close frame
-                        LOG_INFO("WebSocket close frame received from peer: " + peer_ip_);
-                        close_session();
-                        if (on_close_) on_close_(self);
-                        return;
-                    } else if (frame.opcode == 0x09) { // Ping frame
-                        auto pong = websocket_codec::encode_frame(reinterpret_cast<const uint8_t*>(frame.payload.data()), frame.payload.size(), 0x0A);
-                        auto p_buf = std::make_shared<std::vector<uint8_t>>(std::move(pong));
-                        asio::async_write(socket_, asio::buffer(*p_buf), asio::bind_executor(strand_, [self, p_buf](std::error_code, size_t){}));
-                    }
-                }
             } else {
-                process_packet(rx_buffer_, bytes_transferred);
+                // Wait for full HTTP headers
+                start_read_loop();
+                return;
+            }
+        } else {
+            // Regular TCP MQTT connection
+            ws_handshake_done_ = true;
+            is_websocket_ = false;
+            process_packet(rx_acc_.data(), rx_acc_.size());
+            rx_acc_.clear();
+            if (!closing_) start_read_loop();
+            return;
+        }
+    } else if (is_websocket_ && bytes_transferred > 0) {
+        rx_acc_.append(data, bytes_transferred);
+
+        if (exceeds_buffer_cap(rx_acc_.total_capacity())) {
+            LOG_WARN("MQTT websocket session exceeded max buffer size; closing peer: " + peer_ip_);
+            close_session();
+            on_session_closed();
+            return;
+        }
+    }
+
+    if (is_websocket_) {
+        while (!closing_ && !rx_acc_.empty()) {
+            ws_frame frame;
+            size_t consumed = websocket_codec::decode_frame(rx_acc_.data(), rx_acc_.size(), frame);
+            if (consumed == 0) {
+                break; // Wait for full WS frame
             }
 
-            do_read();
-        }));
+            rx_acc_.consume(consumed);
+
+            if (frame.opcode == 0x01 || frame.opcode == 0x02) { // Text or Binary frame
+                process_packet(reinterpret_cast<const uint8_t*>(frame.payload.data()), frame.payload.size());
+            } else if (frame.opcode == 0x08) { // Close frame
+                LOG_INFO("WebSocket close frame received from peer: " + peer_ip_);
+                close_session();
+                on_session_closed();
+                return;
+            } else if (frame.opcode == 0x09) { // Ping frame
+                auto pong = websocket_codec::encode_frame(reinterpret_cast<const uint8_t*>(frame.payload.data()), frame.payload.size(), 0x0A);
+                auto p_buf = std::make_shared<std::vector<uint8_t>>(std::move(pong));
+                asio::async_write(socket_, asio::buffer(*p_buf), asio::bind_executor(strand_, [self, p_buf](std::error_code, size_t){}));
+            }
+        }
+        rx_acc_.compact_if_needed();
+    } else {
+        process_packet(data, bytes_transferred);
+    }
+
+    if (!closing_) start_read_loop();
 }
 
 void mqtt_session::process_packet(const uint8_t* data, size_t len) {
@@ -196,7 +202,13 @@ void mqtt_session::process_packet(const uint8_t* data, size_t len) {
         case static_cast<uint8_t>(mqtt_type::publish):
             handle_publish(data, len);
             break;
-        case static_cast<uint8_t>(mqtt_type::subscribe):
+        // SUBSCRIBE's fixed-header flags nibble is mandated to be 0x2 by the
+        // MQTT spec, so mqtt_type::subscribe (0x82) must itself be masked with
+        // 0xF0 to compare against pkt_type - unlike PUBLISH/CONNECT/etc. whose
+        // enum values are already bare type nibbles. Without this mask, a
+        // SUBSCRIBE packet's pkt_type (0x80) never matched 0x82 and every
+        // subscription request was silently dropped.
+        case (static_cast<uint8_t>(mqtt_type::subscribe) & 0xF0):
             handle_subscribe(data, len);
             break;
         case static_cast<uint8_t>(mqtt_type::pingreq):
@@ -206,6 +218,7 @@ void mqtt_session::process_packet(const uint8_t* data, size_t len) {
             handle_disconnect();
             break;
         default:
+            LOG_DEBUG("Dropped unrecognized MQTT packet type: 0x" + std::to_string(pkt_type));
             break;
     }
 }
@@ -213,7 +226,10 @@ void mqtt_session::process_packet(const uint8_t* data, size_t len) {
 void mqtt_session::handle_connect(const uint8_t* data, size_t len) {
     mqtt_connect conn;
     if (!mqtt_codec::decode_connect(data, len, conn)) {
-        send_raw(mqtt_codec::encode_connack(0x01)); // Refused: unacceptable protocol
+        // Close after responding: a malformed-CONNECT client gets one chance
+        // per TCP connection, forcing a reconnect (and connection_guard's
+        // rate limit) instead of allowing unlimited retries on one socket.
+        send_raw_and_close(mqtt_codec::encode_connack(0x01)); // Refused: unacceptable protocol
         return;
     }
 
@@ -225,7 +241,8 @@ void mqtt_session::handle_connect(const uint8_t* data, size_t len) {
     std::string expected_password = access_key_ + username_;
     if (conn.password != expected_password && !access_key_.empty()) {
         LOG_WARN("MQTT auth failed for user: " + username_);
-        send_raw(mqtt_codec::encode_connack(0x04)); // Bad username or password
+        // Close after responding, for the same brute-force-mitigation reason.
+        send_raw_and_close(mqtt_codec::encode_connack(0x04)); // Bad username or password
         return;
     }
 
@@ -297,19 +314,24 @@ void mqtt_session::handle_pingreq() {
 
 void mqtt_session::handle_disconnect() {
     close_session();
-    if (on_close_) {
-        on_close_(shared_from_this());
-    }
+    on_session_closed();
 }
 
-mqtt_server::mqtt_server(asio::io_context& io_ctx, uint16_t port, registry& reg, const std::string& access_key)
+mqtt_server::mqtt_server(asio::io_context& io_ctx, uint16_t port, registry& reg, const std::string& access_key,
+                         connection_guard& conn_guard,
+                         size_t max_session_buffer_bytes, std::chrono::seconds session_idle_timeout)
     : io_ctx_(io_ctx),
       acceptor_(io_ctx, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)),
       registry_(reg),
-      access_key_(access_key) {
-    
-    // Register registry callback to broadcast topology changes to subscribers of apr/{role}
-    registry_.set_event_callback([this](const node_info& node) {
+      access_key_(access_key),
+      conn_guard_(conn_guard),
+      max_session_buffer_bytes_(max_session_buffer_bytes),
+      session_idle_timeout_(session_idle_timeout) {
+
+    // Subscribe to broadcast topology changes to subscribers of apr/{role}.
+    // Each mqtt_server instance (plain TCP + dedicated WS) keeps its own
+    // subscription, since registry now supports multiple simultaneous observers.
+    event_cb_token_ = registry_.add_event_callback([this](const node_info& node) {
         nlohmann::json j = node;
         std::string topic = "apr/" + node.role;
         broadcast(topic, j.dump());
@@ -317,6 +339,7 @@ mqtt_server::mqtt_server(asio::io_context& io_ctx, uint16_t port, registry& reg,
 }
 
 mqtt_server::~mqtt_server() {
+    registry_.remove_event_callback(event_cb_token_);
     stop();
 }
 
@@ -334,11 +357,23 @@ void mqtt_server::stop() {
 }
 
 void mqtt_server::broadcast(const std::string& topic, const std::string& payload) {
-    auto packet = mqtt_codec::encode_publish(topic, payload);
+    auto packet = std::make_shared<const std::vector<uint8_t>>(mqtt_codec::encode_publish(topic, payload));
+    // Websocket subscribers all need the identical framed encoding; build it
+    // once lazily instead of re-framing per subscriber.
+    std::shared_ptr<const std::vector<uint8_t>> ws_framed;
+
     std::shared_lock lock(sessions_mutex_);
     for (const auto& session : sessions_) {
-        if (session->matches_topic(topic)) {
-            session->send_raw(packet);
+        if (!session->matches_topic(topic)) continue;
+
+        if (session->is_websocket()) {
+            if (!ws_framed) {
+                ws_framed = std::make_shared<const std::vector<uint8_t>>(
+                    websocket_codec::encode_frame(packet->data(), packet->size(), 0x02));
+            }
+            session->send_raw(ws_framed, /*already_framed=*/true);
+        } else {
+            session->send_raw(packet, /*already_framed=*/false);
         }
     }
 }
@@ -346,19 +381,32 @@ void mqtt_server::broadcast(const std::string& topic, const std::string& payload
 void mqtt_server::do_accept() {
     acceptor_.async_accept([this](std::error_code ec, asio::ip::tcp::socket socket) {
         if (!ec) {
-            auto session = std::make_shared<mqtt_session>(
-                std::move(socket),
-                registry_,
-                access_key_,
-                [this](std::shared_ptr<mqtt_session> s) {
+            std::error_code ep_ec;
+            auto remote = socket.remote_endpoint(ep_ec);
+            std::string peer_ip = ep_ec ? std::string() : remote.address().to_string();
+
+            if (!conn_guard_.try_acquire(peer_ip)) {
+                LOG_DEBUG("Rejected MQTT connection from " + peer_ip + ": connection limit exceeded");
+                std::error_code close_ec;
+                socket.close(close_ec);
+            } else {
+                auto session = std::make_shared<mqtt_session>(
+                    std::move(socket),
+                    registry_,
+                    access_key_,
+                    [this](std::shared_ptr<mqtt_session> s) {
+                        std::unique_lock lock(sessions_mutex_);
+                        sessions_.erase(s);
+                    },
+                    conn_guard_,
+                    max_session_buffer_bytes_,
+                    session_idle_timeout_);
+                {
                     std::unique_lock lock(sessions_mutex_);
-                    sessions_.erase(s);
-                });
-            {
-                std::unique_lock lock(sessions_mutex_);
-                sessions_.insert(session);
+                    sessions_.insert(session);
+                }
+                session->start();
             }
-            session->start();
         }
         if (acceptor_.is_open()) {
             do_accept();

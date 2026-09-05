@@ -36,6 +36,7 @@ set(CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/registry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/memory_tracker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/cli_options.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/connection_guard.cpp
 )
 
 set(MQTT_SOURCES
@@ -45,6 +46,7 @@ set(MQTT_SOURCES
 )
 
 set(HTTP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/http/http_parsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/http/http_server.cpp
 )
 

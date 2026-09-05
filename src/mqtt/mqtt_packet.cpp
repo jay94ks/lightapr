@@ -33,12 +33,34 @@ static size_t decode_remaining_length(const uint8_t* data, size_t max_len, size_
     return value;
 }
 
-static std::string read_string(const uint8_t* data, size_t& offset) {
+static std::string read_string(const uint8_t* data, size_t buf_len, size_t& offset) {
+    if (offset + 2 > buf_len) {
+        throw std::runtime_error("Truncated MQTT string length prefix");
+    }
     uint16_t len = (data[offset] << 8) | data[offset + 1];
     offset += 2;
+    if (offset + len > buf_len) {
+        throw std::runtime_error("Truncated MQTT string data");
+    }
     std::string str(reinterpret_cast<const char*>(data + offset), len);
     offset += len;
     return str;
+}
+
+static uint8_t read_u8(const uint8_t* data, size_t buf_len, size_t& offset) {
+    if (offset + 1 > buf_len) {
+        throw std::runtime_error("Truncated MQTT byte field");
+    }
+    return data[offset++];
+}
+
+static uint16_t read_u16(const uint8_t* data, size_t buf_len, size_t& offset) {
+    if (offset + 2 > buf_len) {
+        throw std::runtime_error("Truncated MQTT 16-bit field");
+    }
+    uint16_t v = (data[offset] << 8) | data[offset + 1];
+    offset += 2;
+    return v;
 }
 
 static void write_string(const std::string& str, std::vector<uint8_t>& buf) {
@@ -109,26 +131,25 @@ bool mqtt_codec::decode_connect(const uint8_t* data, size_t len, mqtt_connect& o
 
         if (len < offset + rem_len) return false;
 
-        std::string proto_name = read_string(data, offset);
+        std::string proto_name = read_string(data, len, offset);
         if (proto_name != "MQTT" && proto_name != "MQIsdp") return false;
 
-        uint8_t proto_level = data[offset++];
-        uint8_t conn_flags = data[offset++];
-        out_conn.keep_alive = (data[offset] << 8) | data[offset + 1];
-        offset += 2;
+        (void)read_u8(data, len, offset); // proto_level (unused)
+        uint8_t conn_flags = read_u8(data, len, offset);
+        out_conn.keep_alive = read_u16(data, len, offset);
 
-        out_conn.client_id = read_string(data, offset);
+        out_conn.client_id = read_string(data, len, offset);
 
         if (conn_flags & 0x04) { // Will flag
-            read_string(data, offset); // Will Topic
-            read_string(data, offset); // Will Message
+            read_string(data, len, offset); // Will Topic
+            read_string(data, len, offset); // Will Message
         }
 
         if (conn_flags & 0x80) { // Username flag
-            out_conn.username = read_string(data, offset);
+            out_conn.username = read_string(data, len, offset);
         }
         if (conn_flags & 0x40) { // Password flag
-            out_conn.password = read_string(data, offset);
+            out_conn.password = read_string(data, len, offset);
         }
 
         return true;
@@ -150,14 +171,15 @@ bool mqtt_codec::decode_publish(const uint8_t* data, size_t len, mqtt_publish& o
 
         if (len < offset + rem_len) return false;
 
-        out_pub.topic = read_string(data, offset);
+        out_pub.topic = read_string(data, len, offset);
 
         if (out_pub.qos > 0) {
-            out_pub.packet_id = (data[offset] << 8) | data[offset + 1];
-            offset += 2;
+            out_pub.packet_id = read_u16(data, len, offset);
         }
 
-        size_t payload_len = (1 + bytes_read + rem_len) - offset;
+        size_t end_offset = 1 + bytes_read + rem_len;
+        if (offset > end_offset) return false;
+        size_t payload_len = end_offset - offset;
         out_pub.payload = std::string(reinterpret_cast<const char*>(data + offset), payload_len);
         return true;
     } catch (...) {
@@ -174,14 +196,14 @@ bool mqtt_codec::decode_subscribe(const uint8_t* data, size_t len, mqtt_subscrib
 
         if (len < offset + rem_len) return false;
 
-        out_sub.packet_id = (data[offset] << 8) | data[offset + 1];
-        offset += 2;
+        out_sub.packet_id = read_u16(data, len, offset);
 
         size_t end_offset = 1 + bytes_read + rem_len;
         while (offset < end_offset) {
-            std::string topic = read_string(data, offset);
-            uint8_t requested_qos = data[offset++];
-            out_sub.topics.push_back(topic);
+            std::string topic = read_string(data, len, offset);
+            uint8_t requested_qos = read_u8(data, len, offset);
+            (void)requested_qos;
+            out_sub.topics.push_back(std::move(topic));
         }
         return true;
     } catch (...) {

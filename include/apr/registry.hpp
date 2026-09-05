@@ -26,8 +26,11 @@ public:
     registry();
     ~registry();
 
-    // Set callback for node topology broadcast events
-    void set_event_callback(node_event_callback cb);
+    // Subscribe to node topology broadcast events. Returns a token usable with
+    // remove_event_callback. Multiple subscribers are supported (e.g. one per
+    // mqtt_server instance) - a new subscription does not replace prior ones.
+    uint64_t add_event_callback(node_event_callback cb);
+    void remove_event_callback(uint64_t token);
 
     // Node management
     node_info register_or_update_node(const std::string& role,
@@ -66,7 +69,8 @@ private:
     std::mutex rr_mutex_;
     std::unordered_map<std::string, size_t> rr_indices_;
 
-    node_event_callback event_cb_;
+    std::vector<std::pair<uint64_t, node_event_callback>> event_cbs_;
+    std::atomic<uint64_t> event_cb_id_counter_{1};
 
     std::atomic<uint64_t> id_counter_{1};
 };

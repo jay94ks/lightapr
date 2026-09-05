@@ -92,16 +92,55 @@ void test_null_endpoint() {
     std::cout << "[PASS] test_null_endpoint" << std::endl;
 }
 
+void test_registry_multiple_event_observers() {
+    apr::registry reg;
+    apr::endpoint_info ep{"127.0.0.1", 8080, "http"};
+
+    int observer1_count = 0;
+    int observer2_count = 0;
+
+    auto token1 = reg.add_event_callback([&](const apr::node_info&) { observer1_count++; });
+    auto token2 = reg.add_event_callback([&](const apr::node_info&) { observer2_count++; });
+
+    reg.register_or_update_node("api", {}, ep, "127.0.0.1");
+    assert(observer1_count == 1);
+    assert(observer2_count == 1);
+
+    // Removing one subscription must not affect the other.
+    reg.remove_event_callback(token1);
+    reg.register_or_update_node("api", {}, ep, "127.0.0.1");
+    assert(observer1_count == 1); // unchanged
+    assert(observer2_count == 2);
+
+    reg.remove_event_callback(token2);
+    reg.register_or_update_node("api", {}, ep, "127.0.0.1");
+    assert(observer1_count == 1);
+    assert(observer2_count == 2);
+
+    std::cout << "[PASS] test_registry_multiple_event_observers" << std::endl;
+}
+
 void run_mqtt_packet_tests();
 void run_websocket_tests();
+void run_cli_options_tests();
+void run_stream_accumulator_tests();
+void run_registry_concurrency_tests();
+void run_http_server_tests();
+void run_connection_guard_tests();
 
 int main() {
     test_register_and_resolve();
     test_grace_period_and_sweep();
     test_query_pagination();
     test_null_endpoint();
+    test_registry_multiple_event_observers();
     run_mqtt_packet_tests();
     run_websocket_tests();
+    run_cli_options_tests();
+    run_stream_accumulator_tests();
+    run_registry_concurrency_tests();
+    run_http_server_tests();
+    run_connection_guard_tests();
     std::cout << "All unit tests passed successfully!" << std::endl;
     return 0;
 }

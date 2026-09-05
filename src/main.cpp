@@ -1,4 +1,5 @@
 #include "apr/cli_options.hpp"
+#include "apr/connection_guard.hpp"
 #include "apr/logger.hpp"
 #include "apr/platform.hpp"
 #include "apr/registry.hpp"
@@ -29,6 +30,7 @@ int main(int argc, char* argv[]) {
     // Initialize logger
     auto logger = std::make_shared<apr::async_logger>(opts.standalone, opts.log_file);
     apr::logger_registry::instance().set_logger(logger);
+    apr::logger_registry::instance().set_min_level(apr::log_level_from_string(opts.log_level));
 
     LOG_INFO("Starting LightAPR (Cell ID: " + opts.cell_id + ", Mode: " + (opts.standalone ? "Standalone" : "Daemon") + ")");
 
@@ -68,18 +70,34 @@ int main(int argc, char* argv[]) {
     };
     sweep_timer->async_wait(do_sweep);
 
+    auto idle_timeout = std::chrono::seconds(opts.session_idle_timeout_sec);
+
+    // Shared across every listener (MQTT TCP, MQTT WebSocket, HTTP) so a
+    // single attacker IP - or a flood spread across ports - is bounded by
+    // one process-wide connection ceiling and per-IP limits, not a separate
+    // budget per port.
+    apr::connection_limits conn_limits;
+    conn_limits.max_total_connections = opts.max_connections;
+    conn_limits.max_connections_per_ip = opts.max_connections_per_ip;
+    conn_limits.max_new_connections_per_ip = opts.max_new_connections_per_ip;
+    conn_limits.rate_window = std::chrono::seconds(opts.connection_rate_window_sec);
+    apr::connection_guard conn_guard(conn_limits);
+
     try {
-        apr::mqtt_server mqtt_srv(io_ctx, opts.mqtt_port, reg, opts.access_key);
+        apr::mqtt_server mqtt_srv(io_ctx, opts.mqtt_port, reg, opts.access_key, conn_guard,
+                                  opts.max_session_buffer_bytes, idle_timeout);
         mqtt_srv.start();
 
         std::unique_ptr<apr::mqtt_server> mqtt_ws_srv;
         if (opts.ws_port > 0 && opts.ws_port != opts.mqtt_port) {
-            mqtt_ws_srv = std::make_unique<apr::mqtt_server>(io_ctx, opts.ws_port, reg, opts.access_key);
+            mqtt_ws_srv = std::make_unique<apr::mqtt_server>(io_ctx, opts.ws_port, reg, opts.access_key, conn_guard,
+                                                              opts.max_session_buffer_bytes, idle_timeout);
             mqtt_ws_srv->start();
             LOG_INFO("Dedicated WebSocket MQTT server listening on port " + std::to_string(opts.ws_port));
         }
 
-        apr::http_server http_srv(io_ctx, opts.http_port, reg, opts.cell_id);
+        apr::http_server http_srv(io_ctx, opts.http_port, reg, opts.cell_id, conn_guard,
+                                   opts.max_session_buffer_bytes, idle_timeout, opts.max_requests_per_connection);
         http_srv.start();
 
         size_t num_threads = opts.threads;

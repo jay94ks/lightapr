@@ -67,11 +67,48 @@ LightAPR 서버 데몬은 Docker Hub 컨테이너 이미지로 제공되며, `1.
   - `HTTP_PORT`: HTTP REST API 포트 (기본값: `8080`)
   - `WORKER_THREADS`: 이벤트 루프 워커 스레드 수 (기본값: `0`, CPU 코어 수 자동 감지)
   - `LOG_FILE`: 로그 파일 경로 (기본값: `/var/log/lightapr.log`)
+  - `LOG_LEVEL`: 최소 로그 레벨 `debug`|`info`|`warn`|`error` (기본값: `info`)
   - `STANDALONE`: 독립 실행형 포그라운드 콘솔 로깅 여부 (기본값: `true`)
   - `CONFIG_FILE`: JSON 설정 파일 경로 (선택 사항, 아래 참고). 파일에 명시된 값이 CLI 기본값을 대체하며, 명시적으로 지정한 다른 CLI 인자/환경 변수가 있으면 그 값이 최종적으로 우선합니다.
+  - `IDLE_TIMEOUT`: 연결이 유휴 상태(완료된 읽기가 없음)로 머무를 수 있는 최대 시간(초); 초과 시 서버가 연결을 종료 (기본값: `90`)
+  - `MAX_BUFFER_BYTES`: 세션 하나가 진행 중인 요청/프레임을 위해 버퍼링할 수 있는 최대 바이트 수; 초과 시 연결 종료 (기본값: `262144`, 256KiB)
+  - `MAX_CONNECTIONS`: MQTT(TCP+WS)와 HTTP를 합산한 프로세스 전역 동시 연결 상한; `0`이면 무제한 (기본값: `10000`)
+  - `MAX_CONNECTIONS_PER_IP`: 모든 리스너를 합산해 단일 소스 IP가 가질 수 있는 최대 동시 연결 수; `0`이면 무제한 (기본값: `100`)
+  - `MAX_NEW_CONNECTIONS_PER_IP`: 단일 소스 IP가 `CONNECTION_RATE_WINDOW_SEC` 시간 내에 새로 맺을 수 있는 최대 연결 수; `0`이면 무제한 (기본값: `20`)
+  - `CONNECTION_RATE_WINDOW_SEC`: `MAX_NEW_CONNECTIONS_PER_IP`가 사용하는 슬라이딩 윈도우(초) (기본값: `10`)
+  - `MAX_REQUESTS_PER_CONNECTION`: Keep-Alive 연결 하나로 처리할 수 있는 최대 HTTP 요청 수; 초과 시 연결을 종료해 재연결을 강제(재연결은 다시 속도 제한 대상) (`0`이면 무제한, 기본값: `10000`)
+
+### 고부하 및 DDoS 내성 (High-Load & DDoS Resilience)
+LightAPR은 연결 폭주나 악의적인 클라이언트에도 서버 자원이 고갈되지 않도록 설계되었습니다:
+- **연결 수락 단계 제어**: 모든 accept된 소켓(MQTT TCP·MQTT WebSocket·HTTP가 하나의 프로세스 전역 가드를 공유)은 세션 객체를 생성하기 **전에** `MAX_CONNECTIONS`, `MAX_CONNECTIONS_PER_IP`, `MAX_NEW_CONNECTIONS_PER_IP`/`CONNECTION_RATE_WINDOW_SEC` 속도 제한을 검사합니다 — 거부된 연결은 맵 조회 한 번과 즉시 소켓 종료 정도의 비용만 발생시킵니다.
+- **유휴·버퍼 상한**: 모든 세션은 `IDLE_TIMEOUT`·`MAX_BUFFER_BYTES`를 초과하면 강제 종료되어, 느리거나 멈춘 클라이언트가 차지하는 자원을 의도와 무관하게 제한합니다.
+- **MQTT 브루트포스 방어**: 인증 실패(잘못된 자격 증명 또는 손상된 패킷) 시 오류 응답 직후 연결을 즉시 종료합니다 — 이전에는 같은 연결에서 무제한 재시도가 가능했지만, 이제 재시도마다 재연결이 필요하며 재연결은 위 속도 제한의 대상이 됩니다.
+- **HTTP Keep-Alive 남용 방지**: `MAX_REQUESTS_PER_CONNECTION`으로 연결 하나가 처리할 수 있는 요청 수를 제한해, Keep-Alive를 이용해 IP별 속도 제한을 우회하지 못하도록 합니다.
 
 ### CLI 옵션 및 설정 파일
-LightAPR은 모든 설정을 CLI 인자(`-s/--standalone`, `-c/--cell-id`, `-k/--access-key`, `-p/--port`, `-w/--ws-port`, `-h/--http-port`, `-t/--threads`, `-l/--log-file`)로 받을 수 있으며, 인자가 길어지는 것을 피하려면 `-f/--config <경로>` 옵션으로 JSON 설정 파일을 지정할 수도 있습니다. 예시 파일은 [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json)에 있습니다:
+LightAPR은 모든 설정을 CLI 인자로 받을 수 있으며, 인자가 길어지는 것을 피하려면 `-f/--config <경로>` 옵션으로 JSON 설정 파일을 지정할 수도 있습니다:
+
+| 플래그 | 설명 | 기본값 |
+|---|---|---|
+| `-s`, `--standalone` | 포그라운드 콘솔 로깅 모드로 실행 | 데몬 모드 |
+| `-c`, `--cell-id` | 셀 식별자 | `default_cell` |
+| `-k`, `--access-key` | MQTT 인증 키 | `lightapr_secret_key` |
+| `-p`, `--port` | Native TCP MQTT 포트 | `1883` |
+| `-w`, `--ws-port` | WebSocket MQTT 포트 | `8083` |
+| `-h`, `--http-port` | HTTP REST API 포트 | `8080` |
+| `-t`, `--threads` | 이벤트 루프 워커 스레드 수 (`0`=자동 감지) | `0` |
+| `-l`, `--log-file` | 로그 파일 경로 (데몬 모드) | `lightapr.log` |
+| `-v`, `--log-level` | 최소 로그 레벨: `debug`\|`info`\|`warn`\|`error` | `info` |
+| `-f`, `--config` | JSON 설정 파일 경로 | - |
+| `--idle-timeout` | 세션 유휴 타임아웃(초) | `90` |
+| `--max-buffer-bytes` | 세션당 최대 버퍼 바이트 수 | `262144` |
+| `--max-connections` | 프로세스 전역 연결 상한 (`0`=무제한) | `10000` |
+| `--max-connections-per-ip` | 소스 IP별 연결 상한 (`0`=무제한) | `100` |
+| `--max-new-connections-per-ip` | 소스 IP별 신규 연결 속도 상한 (`0`=무제한) | `20` |
+| `--connection-rate-window-sec` | 속도 제한 윈도우(초) | `10` |
+| `--max-requests-per-connection` | Keep-Alive 연결당 최대 HTTP 요청 수 (`0`=무제한) | `10000` |
+
+예시 설정 파일은 [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json)에 있습니다:
 ```json
 {
     "standalone": false,
@@ -81,10 +118,18 @@ LightAPR은 모든 설정을 CLI 인자(`-s/--standalone`, `-c/--cell-id`, `-k/-
     "ws_port": 8083,
     "http_port": 8080,
     "threads": 0,
-    "log_file": "lightapr.log"
+    "log_file": "lightapr.log",
+    "log_level": "info",
+    "session_idle_timeout_sec": 90,
+    "max_session_buffer_bytes": 262144,
+    "max_connections": 10000,
+    "max_connections_per_ip": 100,
+    "max_new_connections_per_ip": 20,
+    "connection_rate_window_sec": 10,
+    "max_requests_per_connection": 10000
 }
 ```
-우선순위: 내장 기본값 → `--config` 파일 → 명시적으로 지정한 다른 CLI 인자(해당 필드에 대해 항상 최우선).
+우선순위: 내장 기본값 → `--config` 파일 → 명시적으로 지정한 다른 CLI 인자(argv 순서와 무관하게 해당 필드에 대해 항상 최우선).
 
 ### Docker CLI 실행 예시
 ```bash
@@ -125,6 +170,9 @@ services:
       - HTTP_PORT=8080
       - LOG_FILE=/var/log/lightapr.log
       - STANDALONE=true
+      - MAX_CONNECTIONS=10000
+      - MAX_CONNECTIONS_PER_IP=100
+      - MAX_NEW_CONNECTIONS_PER_IP=20
 ```
 
 ```bash

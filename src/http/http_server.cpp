@@ -1,107 +1,96 @@
 #include "http_server.hpp"
 #include "apr/memory_tracker.hpp"
 #include <nlohmann/json.hpp>
-#include <sstream>
 #include <iostream>
 
 namespace apr {
 
-static std::unordered_map<std::string, std::string> parse_query(const std::string& query_str) {
-    std::unordered_map<std::string, std::string> result;
-    std::stringstream ss(query_str);
-    std::string item;
-    while (std::getline(ss, item, '&')) {
-        auto eq_pos = item.find('=');
-        if (eq_pos != std::string::npos) {
-            result[item.substr(0, eq_pos)] = item.substr(eq_pos + 1);
-        } else if (!item.empty()) {
-            result[item] = "";
-        }
-    }
-    return result;
-}
-
-static http_request parse_raw_http(const std::string& raw) {
-    http_request req;
-    std::stringstream ss(raw);
-    std::string line;
-
-    if (std::getline(ss, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        std::stringstream line_ss(line);
-        std::string full_path;
-        line_ss >> req.method >> full_path;
-
-        auto q_pos = full_path.find('?');
-        if (q_pos != std::string::npos) {
-            req.path = full_path.substr(0, q_pos);
-            req.query_params = parse_query(full_path.substr(q_pos + 1));
-        } else {
-            req.path = full_path;
-        }
-    }
-
-    while (std::getline(ss, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line.empty()) break; // End of headers
-        auto colon = line.find(':');
-        if (colon != std::string::npos) {
-            std::string k = line.substr(0, colon);
-            std::string v = line.substr(colon + 1);
-            while (!v.empty() && v.front() == ' ') v.erase(0, 1);
-            req.headers[k] = v;
-        }
-    }
-
-    return req;
-}
-
 http_session::http_session(asio::ip::tcp::socket socket,
                            registry& reg,
                            const std::string& cell_id,
-                           std::chrono::steady_clock::time_point start_time)
-    : socket_(std::move(socket)),
-      strand_(asio::make_strand(socket_.get_executor())),
+                           std::chrono::steady_clock::time_point start_time,
+                           connection_guard& conn_guard,
+                           size_t max_buffer_bytes,
+                           std::chrono::seconds idle_timeout,
+                           size_t max_requests_per_connection)
+    : tcp_session_base<http_session, 4096>(std::move(socket), idle_timeout, max_buffer_bytes),
       registry_(reg),
       cell_id_(cell_id),
-      start_time_(start_time) {}
+      start_time_(start_time),
+      conn_guard_(conn_guard),
+      max_requests_per_connection_(max_requests_per_connection) {}
+
+void http_session::on_before_close() {
+    conn_guard_.release(peer_ip_);
+}
 
 void http_session::start() {
-    do_read();
+    start_read_loop();
 }
 
-void http_session::do_read() {
-    auto self = shared_from_this();
-    socket_.async_read_some(asio::buffer(rx_buffer_, sizeof(rx_buffer_)),
-        asio::bind_executor(strand_, [self, this](std::error_code ec, size_t bytes_transferred) {
-            if (!ec) {
-                request_data_.append(rx_buffer_, bytes_transferred);
-                if (request_data_.find("\r\n\r\n") != std::string::npos) {
-                    handle_request(request_data_);
-                } else {
-                    do_read();
-                }
-            }
-        }));
+void http_session::on_bytes_read(const uint8_t* data, size_t n) {
+    request_acc_.append(reinterpret_cast<const char*>(data), n);
+
+    if (exceeds_buffer_cap(request_acc_.total_capacity())) {
+        LOG_WARN("HTTP session exceeded max buffer size; closing peer");
+        close_session();
+        return;
+    }
+
+    try_process_next_request();
 }
 
-void http_session::handle_request(const std::string& raw_request) {
+void http_session::try_process_next_request() {
+    std::string_view buffered(request_acc_.data(), request_acc_.size());
+    auto boundary = find_request_boundary(buffered);
+    if (!boundary) {
+        start_read_loop(); // wait for more bytes to complete the request
+        return;
+    }
+
+    std::string raw_request(buffered.substr(0, *boundary));
+    request_acc_.consume(*boundary);
+    request_acc_.compact_if_needed();
+
     http_request req = parse_raw_http(raw_request);
     http_response res = route_request(req);
+    bool keep_alive = req.keep_alive;
 
-    std::stringstream ss;
-    ss << "HTTP/1.1 " << res.status_code << " " << res.status_text << "\r\n";
-    ss << "Content-Type: " << res.content_type << "\r\n";
-    ss << "Content-Length: " << res.body.size() << "\r\n";
-    ss << "Connection: close\r\n\r\n";
-    ss << res.body;
+    ++request_count_;
+    if (max_requests_per_connection_ > 0 && request_count_ >= max_requests_per_connection_) {
+        // Cap reached: this is the last request served on this connection.
+        // A well-behaved client sees a normal response with Connection:
+        // close and reconnects for further requests, which then goes back
+        // through connection_guard's per-IP rate limit - bounding worst-case
+        // request throughput a single kept-alive connection can sustain.
+        keep_alive = false;
+    }
 
-    response_data_ = ss.str();
+    response_data_.clear();
+    response_data_.reserve(res.body.size() + 128);
+    response_data_ += "HTTP/1.1 ";
+    response_data_ += std::to_string(res.status_code);
+    response_data_ += ' ';
+    response_data_ += res.status_text;
+    response_data_ += "\r\nContent-Type: ";
+    response_data_ += res.content_type;
+    response_data_ += "\r\nContent-Length: ";
+    response_data_ += std::to_string(res.body.size());
+    response_data_ += keep_alive ? "\r\nConnection: keep-alive\r\n\r\n" : "\r\nConnection: close\r\n\r\n";
+    response_data_ += res.body;
+
     auto self = shared_from_this();
     asio::async_write(socket_, asio::buffer(response_data_),
-        asio::bind_executor(strand_, [self, this](std::error_code /*ec*/, size_t /*bytes*/) {
-            std::error_code ignore_ec;
-            socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ignore_ec);
+        asio::bind_executor(strand_, [self, this, keep_alive](std::error_code ec, size_t /*bytes*/) {
+            if (ec || !keep_alive) {
+                std::error_code ignore_ec;
+                socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ignore_ec);
+                close_session();
+                return;
+            }
+            // Either process an already-buffered (pipelined) next request, or
+            // wait for more bytes - never issues a second overlapping write.
+            try_process_next_request();
         }));
 }
 
@@ -162,14 +151,7 @@ http_response http_session::route_request(const http_request& req) {
 
         nlohmann::json node_array = nlohmann::json::array();
         for (const auto& n : nodes) {
-            nlohmann::json node_j = {
-                {"id", n.id},
-                {"role", n.role},
-                {"endpoint", n.endpoint.has_value() ? nlohmann::json(n.endpoint.value()) : nullptr},
-                {"added_at", n.added_at},
-                {"active_at", n.active_at}
-            };
-            node_array.push_back(node_j);
+            node_array.push_back(nlohmann::json(n));
         }
 
         nlohmann::json j = {
@@ -180,8 +162,9 @@ http_response http_session::route_request(const http_request& req) {
         return res;
     }
 
-    if (req.path.rfind("/registry/", 0) == 0) {
-        std::string id = req.path.substr(10);
+    static const std::string kRegistryPrefix = "/registry/";
+    if (req.path.rfind(kRegistryPrefix, 0) == 0) {
+        std::string id = req.path.substr(kRegistryPrefix.size());
         auto node_opt = registry_.get_node(id);
         if (node_opt.has_value()) {
             nlohmann::json j = node_opt.value();
@@ -240,12 +223,20 @@ http_response http_session::route_request(const http_request& req) {
 http_server::http_server(asio::io_context& io_ctx,
                          uint16_t port,
                          registry& reg,
-                         const std::string& cell_id)
+                         const std::string& cell_id,
+                         connection_guard& conn_guard,
+                         size_t max_session_buffer_bytes,
+                         std::chrono::seconds session_idle_timeout,
+                         size_t max_requests_per_connection)
     : io_ctx_(io_ctx),
       acceptor_(io_ctx, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)),
       registry_(reg),
       cell_id_(cell_id),
-      start_time_(std::chrono::steady_clock::now()) {}
+      start_time_(std::chrono::steady_clock::now()),
+      conn_guard_(conn_guard),
+      max_session_buffer_bytes_(max_session_buffer_bytes),
+      session_idle_timeout_(session_idle_timeout),
+      max_requests_per_connection_(max_requests_per_connection) {}
 
 http_server::~http_server() {
     stop();
@@ -264,8 +255,20 @@ void http_server::stop() {
 void http_server::do_accept() {
     acceptor_.async_accept([this](std::error_code ec, asio::ip::tcp::socket socket) {
         if (!ec) {
-            auto session = std::make_shared<http_session>(std::move(socket), registry_, cell_id_, start_time_);
-            session->start();
+            std::error_code ep_ec;
+            auto remote = socket.remote_endpoint(ep_ec);
+            std::string peer_ip = ep_ec ? std::string() : remote.address().to_string();
+
+            if (!conn_guard_.try_acquire(peer_ip)) {
+                LOG_DEBUG("Rejected HTTP connection from " + peer_ip + ": connection limit exceeded");
+                std::error_code close_ec;
+                socket.close(close_ec);
+            } else {
+                auto session = std::make_shared<http_session>(std::move(socket), registry_, cell_id_, start_time_,
+                                                               conn_guard_, max_session_buffer_bytes_,
+                                                               session_idle_timeout_, max_requests_per_connection_);
+                session->start();
+            }
         }
         if (acceptor_.is_open()) {
             do_accept();

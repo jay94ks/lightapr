@@ -3,6 +3,10 @@
 
 #include "apr/registry.hpp"
 #include "apr/logger.hpp"
+#include "apr/connection_guard.hpp"
+#include "apr/stream_accumulator.hpp"
+#include "apr/tcp_session.hpp"
+#include "http_parsing.hpp"
 #include <asio.hpp>
 #include <memory>
 #include <string>
@@ -11,43 +15,45 @@
 
 namespace apr {
 
-struct http_request {
-    std::string method;
-    std::string path;
-    std::unordered_map<std::string, std::string> query_params;
-    std::unordered_map<std::string, std::string> headers;
-    std::string body;
-};
+inline constexpr size_t k_default_http_session_buffer_bytes = 256 * 1024;
+inline constexpr size_t k_default_max_requests_per_connection = 10000;
 
-struct http_response {
-    int status_code{200};
-    std::string status_text{"OK"};
-    std::string content_type{"application/json"};
-    std::string body;
-};
-
-class http_session : public std::enable_shared_from_this<http_session> {
+class http_session : public tcp_session_base<http_session, 4096> {
 public:
+    friend class tcp_session_base<http_session, 4096>;
+
     http_session(asio::ip::tcp::socket socket,
                  registry& reg,
                  const std::string& cell_id,
-                 std::chrono::steady_clock::time_point start_time);
+                 std::chrono::steady_clock::time_point start_time,
+                 connection_guard& conn_guard,
+                 size_t max_buffer_bytes = k_default_http_session_buffer_bytes,
+                 std::chrono::seconds idle_timeout = std::chrono::seconds(k_default_session_idle_timeout_sec),
+                 size_t max_requests_per_connection = k_default_max_requests_per_connection);
 
     void start();
 
 private:
-    void do_read();
-    void handle_request(const std::string& raw_request);
+    // tcp_session_base hooks
+    void on_bytes_read(const uint8_t* data, size_t n);
+    void on_before_close();
+    void on_session_closed() {}
+
+    // Parses and handles the next complete buffered request, if any; writes
+    // the response and either processes the next already-buffered
+    // (pipelined) request, waits for more bytes (keep-alive), or closes the
+    // connection - never issues a second overlapping write.
+    void try_process_next_request();
     http_response route_request(const http_request& req);
 
-    asio::ip::tcp::socket socket_;
-    asio::strand<asio::any_io_executor> strand_;
     registry& registry_;
     std::string cell_id_;
     std::chrono::steady_clock::time_point start_time_;
+    connection_guard& conn_guard_;
+    size_t max_requests_per_connection_;
+    size_t request_count_{0};
 
-    char rx_buffer_[4096];
-    std::string request_data_;
+    stream_accumulator<std::string> request_acc_;
     std::string response_data_;
 };
 
@@ -56,7 +62,11 @@ public:
     http_server(asio::io_context& io_ctx,
                 uint16_t port,
                 registry& reg,
-                const std::string& cell_id);
+                const std::string& cell_id,
+                connection_guard& conn_guard,
+                size_t max_session_buffer_bytes = k_default_http_session_buffer_bytes,
+                std::chrono::seconds session_idle_timeout = std::chrono::seconds(k_default_session_idle_timeout_sec),
+                size_t max_requests_per_connection = k_default_max_requests_per_connection);
     ~http_server();
 
     void start();
@@ -70,6 +80,10 @@ private:
     registry& registry_;
     std::string cell_id_;
     std::chrono::steady_clock::time_point start_time_;
+    connection_guard& conn_guard_;
+    size_t max_session_buffer_bytes_;
+    std::chrono::seconds session_idle_timeout_;
+    size_t max_requests_per_connection_;
 };
 
 } // namespace apr

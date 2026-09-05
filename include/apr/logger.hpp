@@ -30,6 +30,13 @@ inline std::string to_string(log_level level) {
     return "INFO";
 }
 
+inline log_level log_level_from_string(const std::string& str) {
+    if (str == "debug") return log_level::debug;
+    if (str == "warn") return log_level::warn;
+    if (str == "error") return log_level::error;
+    return log_level::info;
+}
+
 struct log_message {
     log_level level;
     std::string message;
@@ -72,17 +79,24 @@ class logger_registry {
 public:
     static logger_registry& instance();
     void set_logger(std::shared_ptr<i_logger> logger);
-    i_logger* get();
+    std::shared_ptr<i_logger> get();
+
+    // Lock-free: read on every LOG_* call, so filtering doesn't add contention.
+    void set_min_level(log_level lvl) { min_level_.store(lvl, std::memory_order_relaxed); }
+    log_level get_min_level() const { return min_level_.load(std::memory_order_relaxed); }
 
 private:
     std::shared_ptr<i_logger> logger_;
     std::mutex mutex_;
+    std::atomic<log_level> min_level_{log_level::info};
 };
 
-#define LOG_DEBUG(msg) do { if (auto* l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::debug, msg); } while(0)
-#define LOG_INFO(msg)  do { if (auto* l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::info, msg); } while(0)
-#define LOG_WARN(msg)  do { if (auto* l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::warn, msg); } while(0)
-#define LOG_ERROR(msg) do { if (auto* l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::error, msg); } while(0)
+// The level check runs before `msg` is evaluated, so an expensive string
+// concatenation at a call site is skipped entirely when filtered out.
+#define LOG_DEBUG(msg) do { if (::apr::logger_registry::instance().get_min_level() <= ::apr::log_level::debug) { if (auto l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::debug, msg); } } while(0)
+#define LOG_INFO(msg)  do { if (::apr::logger_registry::instance().get_min_level() <= ::apr::log_level::info)  { if (auto l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::info, msg); } } while(0)
+#define LOG_WARN(msg)  do { if (::apr::logger_registry::instance().get_min_level() <= ::apr::log_level::warn)  { if (auto l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::warn, msg); } } while(0)
+#define LOG_ERROR(msg) do { if (::apr::logger_registry::instance().get_min_level() <= ::apr::log_level::error) { if (auto l = ::apr::logger_registry::instance().get()) l->log(::apr::log_level::error, msg); } } while(0)
 
 } // namespace apr
 

@@ -16,9 +16,9 @@ void logger_registry::set_logger(std::shared_ptr<i_logger> logger) {
     logger_ = std::move(logger);
 }
 
-i_logger* logger_registry::get() {
+std::shared_ptr<i_logger> logger_registry::get() {
     std::lock_guard<std::mutex> lock(mutex_);
-    return logger_.get();
+    return logger_;
 }
 
 async_logger::async_logger(bool is_standalone, const std::filesystem::path& log_path, size_t max_file_size)
@@ -98,17 +98,18 @@ void async_logger::write_entry(const log_message& msg) {
 
 void async_logger::worker_loop() {
     while (running_ || !queue_.empty()) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
-            return !queue_.empty() || !running_;
-        });
+        std::queue<log_message> local;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
+                return !queue_.empty() || !running_;
+            });
+            std::swap(local, queue_);
+        }
 
-        while (!queue_.empty()) {
-            auto msg = queue_.front();
-            queue_.pop();
-            lock.unlock();
-            write_entry(msg);
-            lock.lock();
+        while (!local.empty()) {
+            write_entry(local.front());
+            local.pop();
         }
     }
 }
