@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   lightapr:
-    image: lightapr:latest
+    image: jay94ks/lightapr:latest
     container_name: lightapr-server
     build:
       context: .

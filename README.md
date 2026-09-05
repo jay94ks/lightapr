@@ -1,6 +1,7 @@
 # APR (Access-Point Registry) Specification
 
-🌐 **Language**: [English Version](README.en.md) | [한국어 버전](README.md)
+🌐 **Language**: [English Version](README.en.md) | [한국어 버전](README.md)  
+📦 **GitHub**: [https://github.com/jay94ks/lightapr](https://github.com/jay94ks/lightapr)
 
 ---
 
@@ -50,8 +51,10 @@ APR 프로토콜을 손쉽게 활용할 수 있도록 다국어 공통 SDK와 �
 ## 6. 도커 컨테이너 이미지 & Docker Compose (Docker & Compose)
 
 ### 이미지 정보 (Docker Image)
-LightAPR 서버 데몬은 Docker 컨테이너 이미지로 제공되며, `1.0.0` 버전 및 `latest` 태그로 이용할 수 있습니다.
-- **이미지명**: `lightapr:1.0.0`, `lightapr:latest` (또는 `<username>/lightapr:1.0.0`)
+LightAPR 서버 데몬은 Docker Hub 컨테이너 이미지로 제공되며, `1.0.0` 버전 및 `latest` 태그로 이용할 수 있습니다.
+- **GitHub Repository**: [https://github.com/jay94ks/lightapr](https://github.com/jay94ks/lightapr)
+- **Docker Hub Repository**: [https://hub.docker.com/r/jay94ks/lightapr](https://hub.docker.com/r/jay94ks/lightapr) (`jay94ks/lightapr`)
+- **이미지명**: `jay94ks/lightapr:1.0.0`, `jay94ks/lightapr:latest`
 - **포트 바인딩**:
   - `1883`: Native TCP MQTT 제어 평면
   - `8083`: WebSocket MQTT 제어 평면
@@ -75,7 +78,7 @@ docker run -d \
   -p 8080:8080 \
   -e CELL_ID="cell-prod-1" \
   -e ACCESS_KEY="my_secret_key" \
-  lightapr:latest
+  jay94ks/lightapr:latest
 ```
 
 ### Docker Compose 샘플 (`docker-compose.yml`)
@@ -86,7 +89,7 @@ version: '3.8'
 
 services:
   lightapr:
-    image: lightapr:latest
+    image: jay94ks/lightapr:latest
     container_name: lightapr-server
     build:
       context: .

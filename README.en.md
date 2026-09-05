@@ -1,6 +1,7 @@
 # APR (Access-Point Registry) Specification
 
-🌐 **Language**: [English Version](README.en.md) | [Korean Version](README.md)
+🌐 **Language**: [English Version](README.en.md) | [Korean Version](README.md)  
+📦 **GitHub Repository**: [https://github.com/jay94ks/lightapr](https://github.com/jay94ks/lightapr)
 
 ---
 
@@ -50,8 +51,10 @@ Multi-language SDKs and example projects are provided for seamless APR integrati
 ## 6. Docker Container Image & Docker Compose
 
 ### Image Details
-The LightAPR server daemon is packaged as a Docker container image available with tag `1.0.0` and linked `latest` tag.
-- **Image Names**: `lightapr:1.0.0`, `lightapr:latest` (or `<username>/lightapr:1.0.0`)
+The LightAPR server daemon is published as a Docker Hub container image available with tag `1.0.0` and linked `latest` tag.
+- **GitHub Repository**: [https://github.com/jay94ks/lightapr](https://github.com/jay94ks/lightapr)
+- **Docker Hub Repository**: [https://hub.docker.com/r/jay94ks/lightapr](https://hub.docker.com/r/jay94ks/lightapr) (`jay94ks/lightapr`)
+- **Image Names**: `jay94ks/lightapr:1.0.0`, `jay94ks/lightapr:latest`
 - **Port Allocations**:
   - `1883`: Native TCP MQTT Control Plane
   - `8083`: WebSocket MQTT Control Plane
@@ -75,7 +78,7 @@ docker run -d \
   -p 8080:8080 \
   -e CELL_ID="cell-prod-1" \
   -e ACCESS_KEY="my_secret_key" \
-  lightapr:latest
+  jay94ks/lightapr:latest
 ```
 
 ### Docker Compose Sample (`docker-compose.yml`)
@@ -86,7 +89,7 @@ version: '3.8'
 
 services:
   lightapr:
-    image: lightapr:latest
+    image: jay94ks/lightapr:latest
     container_name: lightapr-server
     build:
       context: .
@@ -98,6 +101,13 @@ services:
       - "8080:8080"   # HTTP REST Management
     environment:
       - CELL_ID=default_cell
+      - ACCESS_KEY=lightapr_secret_key
+      - MQTT_PORT=1883
+      - WS_PORT=8083
+      - HTTP_PORT=8080
+      - LOG_FILE=/var/log/lightapr.log
+      - STANDALONE=true
+```
       - ACCESS_KEY=lightapr_secret_key
       - MQTT_PORT=1883
       - WS_PORT=8083
