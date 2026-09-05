@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  lightapr:
+    image: lightapr:latest
+    container_name: lightapr-server
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # Native TCP MQTT Control Plane
+      - "8083:8083"   # WebSocket MQTT Control Plane
+      - "8080:8080"   # HTTP Management / Discovery Plane
+    environment:
+      - CELL_ID=default_cell
+      - ACCESS_KEY=lightapr_secret_key
+      - MQTT_PORT=1883
+      - WS_PORT=8083
+      - HTTP_PORT=8080
+      - LOG_FILE=/var/log/lightapr.log
+      - STANDALONE=true

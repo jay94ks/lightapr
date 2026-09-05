@@ -47,6 +47,70 @@ Multi-language SDKs and example projects are provided for seamless APR integrati
 - **Monitoring Web App (`monitor/html/index.html`)**:
   - Web dashboard for LightAPR observability, node registry viewing, load balancer testing, and WebSocket event viewing.
 
-## 6. Specifications & Guidelines
+## 6. Docker Container Image & Docker Compose
+
+### Image Details
+The LightAPR server daemon is packaged as a Docker container image available with tag `1.0.0` and linked `latest` tag.
+- **Image Names**: `lightapr:1.0.0`, `lightapr:latest` (or `<username>/lightapr:1.0.0`)
+- **Port Allocations**:
+  - `1883`: Native TCP MQTT Control Plane
+  - `8083`: WebSocket MQTT Control Plane
+  - `8080`: HTTP REST Management/Discovery Plane
+- **Environment Variables**:
+  - `CELL_ID`: Cell identifier (Default: `default_cell`)
+  - `ACCESS_KEY`: Access authentication key (Default: `lightapr_secret_key`)
+  - `MQTT_PORT`: Native TCP MQTT port (Default: `1883`)
+  - `WS_PORT`: WebSocket MQTT port (Default: `8083`)
+  - `HTTP_PORT`: HTTP REST API port (Default: `8080`)
+  - `LOG_FILE`: Log file path (Default: `/var/log/lightapr.log`)
+  - `STANDALONE`: Standalone console logging mode (Default: `true`)
+
+### Docker CLI Quickstart
+```bash
+# Run container using Docker CLI
+docker run -d \
+  --name lightapr-server \
+  -p 1883:1883 \
+  -p 8083:8083 \
+  -p 8080:8080 \
+  -e CELL_ID="cell-prod-1" \
+  -e ACCESS_KEY="my_secret_key" \
+  lightapr:latest
+```
+
+### Docker Compose Sample (`docker-compose.yml`)
+Utilize the included [docker-compose.yml](docker-compose.yml) file to launch the service:
+
+```yaml
+version: '3.8'
+
+services:
+  lightapr:
+    image: lightapr:latest
+    container_name: lightapr-server
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # Native TCP MQTT
+      - "8083:8083"   # WebSocket MQTT
+      - "8080:8080"   # HTTP REST Management
+    environment:
+      - CELL_ID=default_cell
+      - ACCESS_KEY=lightapr_secret_key
+      - MQTT_PORT=1883
+      - WS_PORT=8083
+      - HTTP_PORT=8080
+      - LOG_FILE=/var/log/lightapr.log
+      - STANDALONE=true
+```
+
+```bash
+# Run with Docker Compose
+docker compose up -d
+```
+
+## 7. Specifications & Guidelines
 - Detailed Protocol Specification: [PROTOCOL.md](PROTOCOL.md) | [English](PROTOCOL.en.md)
 - C++ Development Guidelines: [AGENTS.md](AGENTS.md) | [English](AGENTS.en.md)

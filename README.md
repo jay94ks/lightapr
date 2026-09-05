@@ -47,6 +47,70 @@ APR 프로토콜을 손쉽게 활용할 수 있도록 다국어 공통 SDK와 �
 - **모니터링 앱 (`monitor/html/index.html`)**:
   - LightAPR 상태 관측, 노드 조회, 로드밸런서 테스트 및 웹소켓 이벤트 뷰어 웹 대시보드
 
-## 6. 프로토콜 및 개발 규격 문서
+## 6. 도커 컨테이너 이미지 & Docker Compose (Docker & Compose)
+
+### 이미지 정보 (Docker Image)
+LightAPR 서버 데몬은 Docker 컨테이너 이미지로 제공되며, `1.0.0` 버전 및 `latest` 태그로 이용할 수 있습니다.
+- **이미지명**: `lightapr:1.0.0`, `lightapr:latest` (또는 `<username>/lightapr:1.0.0`)
+- **포트 바인딩**:
+  - `1883`: Native TCP MQTT 제어 평면
+  - `8083`: WebSocket MQTT 제어 평면
+  - `8080`: HTTP REST 관리/디스커버리 평면
+- **주요 환경 변수**:
+  - `CELL_ID`: 셀 식별자 (기본값: `default_cell`)
+  - `ACCESS_KEY`: 인증 키 (기본값: `lightapr_secret_key`)
+  - `MQTT_PORT`: Native TCP MQTT 포트 (기본값: `1883`)
+  - `WS_PORT`: WebSocket MQTT 포트 (기본값: `8083`)
+  - `HTTP_PORT`: HTTP REST API 포트 (기본값: `8080`)
+  - `LOG_FILE`: 로그 파일 경로 (기본값: `/var/log/lightapr.log`)
+  - `STANDALONE`: 독립 실행형 포그라운드 콘솔 로깅 여부 (기본값: `true`)
+
+### Docker CLI 실행 예시
+```bash
+# Docker 실행 예시
+docker run -d \
+  --name lightapr-server \
+  -p 1883:1883 \
+  -p 8083:8083 \
+  -p 8080:8080 \
+  -e CELL_ID="cell-prod-1" \
+  -e ACCESS_KEY="my_secret_key" \
+  lightapr:latest
+```
+
+### Docker Compose 샘플 (`docker-compose.yml`)
+루트 디렉토리에 포함된 [docker-compose.yml](docker-compose.yml) 파일을 활용해 서비스를 손쉽게 오케스트레이션할 수 있습니다.
+
+```yaml
+version: '3.8'
+
+services:
+  lightapr:
+    image: lightapr:latest
+    container_name: lightapr-server
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # Native TCP MQTT
+      - "8083:8083"   # WebSocket MQTT
+      - "8080:8080"   # HTTP REST Management
+    environment:
+      - CELL_ID=default_cell
+      - ACCESS_KEY=lightapr_secret_key
+      - MQTT_PORT=1883
+      - WS_PORT=8083
+      - HTTP_PORT=8080
+      - LOG_FILE=/var/log/lightapr.log
+      - STANDALONE=true
+```
+
+```bash
+# Docker Compose 실행
+docker compose up -d
+```
+
+## 7. 프로토콜 및 개발 규격 문서
 - 세부 프로토콜 규격: [PROTOCOL.md](PROTOCOL.md) | [English](PROTOCOL.en.md)
 - C++ 개발 지침: [AGENTS.md](AGENTS.md) | [English](AGENTS.en.md)

@@ -1,0 +1,14 @@
+build/
+bin/
+obj/
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+.git/
+.vs/
+.vscode/
+*.exe
+*.obj
+*.o
+*.log
