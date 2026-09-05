@@ -1,6 +1,6 @@
 # APR (Access-Point Registry) Specification
 
-🌐 **Language**: [English Version](README.en.md) | [Korean Version](README.md)  
+🌐 **Language**: [English Version](https://github.com/jay94ks/lightapr/blob/main/README.en.md) | [Korean Version](https://github.com/jay94ks/lightapr/blob/main/README.md)  
 📦 **GitHub Repository**: [https://github.com/jay94ks/lightapr](https://github.com/jay94ks/lightapr)
 
 ---
@@ -82,7 +82,7 @@ docker run -d \
 ```
 
 ### Docker Compose Sample (`docker-compose.yml`)
-Utilize the included [docker-compose.yml](docker-compose.yml) file to launch the service:
+Utilize the included [docker-compose.yml](https://github.com/jay94ks/lightapr/blob/main/docker-compose.yml) file to launch the service:
 
 ```yaml
 version: '3.8'
@@ -108,13 +108,6 @@ services:
       - LOG_FILE=/var/log/lightapr.log
       - STANDALONE=true
 ```
-      - ACCESS_KEY=lightapr_secret_key
-      - MQTT_PORT=1883
-      - WS_PORT=8083
-      - HTTP_PORT=8080
-      - LOG_FILE=/var/log/lightapr.log
-      - STANDALONE=true
-```
 
 ```bash
 # Run with Docker Compose
@@ -122,5 +115,5 @@ docker compose up -d
 ```
 
 ## 7. Specifications & Guidelines
-- Detailed Protocol Specification: [PROTOCOL.md](PROTOCOL.md) | [English](PROTOCOL.en.md)
-- C++ Development Guidelines: [AGENTS.md](AGENTS.md) | [English](AGENTS.en.md)
+- Detailed Protocol Specification: [PROTOCOL.md](https://github.com/jay94ks/lightapr/blob/main/PROTOCOL.md) | [English](https://github.com/jay94ks/lightapr/blob/main/PROTOCOL.en.md)
+- C++ Development Guidelines: [AGENTS.md](https://github.com/jay94ks/lightapr/blob/main/AGENTS.md) | [English](https://github.com/jay94ks/lightapr/blob/main/AGENTS.en.md)

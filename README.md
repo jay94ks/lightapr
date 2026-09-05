@@ -1,6 +1,6 @@
 # APR (Access-Point Registry) Specification
 
-🌐 **Language**: [English Version](README.en.md) | [한국어 버전](README.md)  
+🌐 **Language**: [English Version](https://github.com/jay94ks/lightapr/blob/main/README.en.md) | [한국어 버전](https://github.com/jay94ks/lightapr/blob/main/README.md)  
 📦 **GitHub**: [https://github.com/jay94ks/lightapr](https://github.com/jay94ks/lightapr)
 
 ---
@@ -82,7 +82,7 @@ docker run -d \
 ```
 
 ### Docker Compose 샘플 (`docker-compose.yml`)
-루트 디렉토리에 포함된 [docker-compose.yml](docker-compose.yml) 파일을 활용해 서비스를 손쉽게 오케스트레이션할 수 있습니다.
+루트 디렉토리에 포함된 [docker-compose.yml](https://github.com/jay94ks/lightapr/blob/main/docker-compose.yml) 파일을 활용해 서비스를 손쉽게 오케스트레이션할 수 있습니다.
 
 ```yaml
 version: '3.8'
@@ -115,5 +115,5 @@ docker compose up -d
 ```
 
 ## 7. 프로토콜 및 개발 규격 문서
-- 세부 프로토콜 규격: [PROTOCOL.md](PROTOCOL.md) | [English](PROTOCOL.en.md)
-- C++ 개발 지침: [AGENTS.md](AGENTS.md) | [English](AGENTS.en.md)
+- 세부 프로토콜 규격: [PROTOCOL.md](https://github.com/jay94ks/lightapr/blob/main/PROTOCOL.md) | [English](https://github.com/jay94ks/lightapr/blob/main/PROTOCOL.en.md)
+- C++ 개발 지침: [AGENTS.md](https://github.com/jay94ks/lightapr/blob/main/AGENTS.md) | [English](https://github.com/jay94ks/lightapr/blob/main/AGENTS.en.md)

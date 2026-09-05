@@ -1,6 +1,6 @@
 # AGENTS.md: 크로스 플랫폼 C++ 데몬/서비스 개발 지침
 
-🌐 **언어**: [English Version](AGENTS.en.md) | [한국어 버전](AGENTS.md)
+🌐 **언어**: [English Version](https://github.com/jay94ks/lightapr/blob/main/AGENTS.en.md) | [한국어 버전](https://github.com/jay94ks/lightapr/blob/main/AGENTS.md)
 
 ---
 

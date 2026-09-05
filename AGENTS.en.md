@@ -1,6 +1,6 @@
 # AGENTS.md: Cross-Platform C++ Daemon/Service Development Guidelines
 
-🌐 **Language**: [English Version](AGENTS.en.md) | [Korean Version](AGENTS.md)
+🌐 **Language**: [English Version](https://github.com/jay94ks/lightapr/blob/main/AGENTS.en.md) | [Korean Version](https://github.com/jay94ks/lightapr/blob/main/AGENTS.md)
 
 ---
 

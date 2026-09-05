@@ -1,4 +1,4 @@
-🌐 **언어**: [English Version](PROTOCOL.en.md) | [한국어 버전](PROTOCOL.md)
+🌐 **언어**: [English Version](https://github.com/jay94ks/lightapr/blob/main/PROTOCOL.en.md) | [한국어 버전](https://github.com/jay94ks/lightapr/blob/main/PROTOCOL.md)
 
 ---
 
