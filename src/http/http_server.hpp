@@ -27,6 +27,8 @@ public:
                  const std::string& cell_id,
                  std::chrono::steady_clock::time_point start_time,
                  connection_guard& conn_guard,
+                 bool monitor_enabled,
+                 bool tester_enabled,
                  size_t max_buffer_bytes = k_default_http_session_buffer_bytes,
                  std::chrono::seconds idle_timeout = std::chrono::seconds(k_default_session_idle_timeout_sec),
                  size_t max_requests_per_connection = k_default_max_requests_per_connection);
@@ -50,6 +52,8 @@ private:
     std::string cell_id_;
     std::chrono::steady_clock::time_point start_time_;
     connection_guard& conn_guard_;
+    bool monitor_enabled_;
+    bool tester_enabled_;
     size_t max_requests_per_connection_;
     size_t request_count_{0};
 
@@ -64,6 +68,8 @@ public:
                 registry& reg,
                 const std::string& cell_id,
                 connection_guard& conn_guard,
+                bool monitor_enabled = false,
+                bool tester_enabled = false,
                 size_t max_session_buffer_bytes = k_default_http_session_buffer_bytes,
                 std::chrono::seconds session_idle_timeout = std::chrono::seconds(k_default_session_idle_timeout_sec),
                 size_t max_requests_per_connection = k_default_max_requests_per_connection);
@@ -81,6 +87,8 @@ private:
     std::string cell_id_;
     std::chrono::steady_clock::time_point start_time_;
     connection_guard& conn_guard_;
+    bool monitor_enabled_;
+    bool tester_enabled_;
     size_t max_session_buffer_bytes_;
     std::chrono::seconds session_idle_timeout_;
     size_t max_requests_per_connection_;

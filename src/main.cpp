@@ -97,8 +97,15 @@ int main(int argc, char* argv[]) {
         }
 
         apr::http_server http_srv(io_ctx, opts.http_port, reg, opts.cell_id, conn_guard,
+                                   opts.monitor_enabled, opts.tester_enabled,
                                    opts.max_session_buffer_bytes, idle_timeout, opts.max_requests_per_connection);
         http_srv.start();
+        if (opts.monitor_enabled) {
+            LOG_INFO("Monitor UI enabled at http://<host>:" + std::to_string(opts.http_port) + "/monitor");
+        }
+        if (opts.tester_enabled) {
+            LOG_INFO("Tester UI enabled at http://<host>:" + std::to_string(opts.http_port) + "/tester");
+        }
 
         size_t num_threads = opts.threads;
         if (num_threads == 0) {

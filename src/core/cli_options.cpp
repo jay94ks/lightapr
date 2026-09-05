@@ -69,6 +69,12 @@ bool cli_options::load_from_file(const std::string& path, cli_options& opts) {
     if (j.contains("max_requests_per_connection") && j["max_requests_per_connection"].is_number_unsigned()) {
         opts.max_requests_per_connection = j["max_requests_per_connection"].get<size_t>();
     }
+    if (j.contains("monitor") && j["monitor"].is_boolean()) {
+        opts.monitor_enabled = j["monitor"].get<bool>();
+    }
+    if (j.contains("tester") && j["tester"].is_boolean()) {
+        opts.tester_enabled = j["tester"].get<bool>();
+    }
 
     return true;
 }
@@ -95,6 +101,8 @@ struct cli_overrides {
     bool max_new_connections_per_ip{false};
     bool connection_rate_window_sec{false};
     bool max_requests_per_connection{false};
+    bool monitor_enabled{false};
+    bool tester_enabled{false};
 };
 
 void apply_overrides(const cli_overrides& ov, cli_options& opts) {
@@ -114,6 +122,8 @@ void apply_overrides(const cli_overrides& ov, cli_options& opts) {
     if (ov.max_new_connections_per_ip) opts.max_new_connections_per_ip = ov.values.max_new_connections_per_ip;
     if (ov.connection_rate_window_sec) opts.connection_rate_window_sec = ov.values.connection_rate_window_sec;
     if (ov.max_requests_per_connection) opts.max_requests_per_connection = ov.values.max_requests_per_connection;
+    if (ov.monitor_enabled) opts.monitor_enabled = ov.values.monitor_enabled;
+    if (ov.tester_enabled) opts.tester_enabled = ov.values.tester_enabled;
 }
 } // namespace
 
@@ -176,6 +186,12 @@ cli_options cli_options::parse(int argc, char* argv[]) {
         } else if (arg == "--max-requests-per-connection" && i + 1 < argc) {
             ov.values.max_requests_per_connection = static_cast<size_t>(std::stoul(argv[++i]));
             ov.max_requests_per_connection = true;
+        } else if (arg == "--monitor") {
+            ov.values.monitor_enabled = true;
+            ov.monitor_enabled = true;
+        } else if (arg == "--tester") {
+            ov.values.tester_enabled = true;
+            ov.tester_enabled = true;
         } else if ((arg == "-f" || arg == "--config") && i + 1 < argc) {
             config_path = argv[++i];
             has_config = true;

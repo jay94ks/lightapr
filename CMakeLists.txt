@@ -45,6 +45,37 @@ set(MQTT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mqtt/mqtt_server.cpp
 )
 
+# Embed the monitor/tester HTML apps into the binary at build time (see
+# cmake/EmbedFile.cmake). Uses add_custom_command (not configure-time
+# generation) so the embedded .cpp regenerates whenever the source .html
+# changes, not just when CMake reconfigures.
+set(APR_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
+
+function(apr_embed_html input_path output_cpp var_name)
+    add_custom_command(
+        OUTPUT ${output_cpp}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${input_path} -DOUTPUT=${output_cpp} -DVARNAME=${var_name}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake
+        DEPENDS ${input_path} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake
+        COMMENT "Embedding ${input_path} -> ${output_cpp}"
+        VERBATIM
+    )
+endfunction()
+
+apr_embed_html(${CMAKE_CURRENT_SOURCE_DIR}/monitor/html/index.html
+               ${APR_GENERATED_DIR}/monitor_html_embed.cpp monitor_html)
+apr_embed_html(${CMAKE_CURRENT_SOURCE_DIR}/monitor/tester/index.html
+               ${APR_GENERATED_DIR}/tester_html_embed.cpp tester_html)
+
+# An OBJECT library (rather than listing the generated paths directly in
+# HTTP_SOURCES) so CMake reliably tracks these as build products of the
+# custom commands above even when linked into a target defined in a
+# different directory scope (tests/CMakeLists.txt's unit_tests).
+add_library(apr_embedded_assets OBJECT
+    ${APR_GENERATED_DIR}/monitor_html_embed.cpp
+    ${APR_GENERATED_DIR}/tester_html_embed.cpp
+)
+
 set(HTTP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/http/http_parsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/http/http_server.cpp
@@ -69,7 +100,7 @@ add_executable(lightapr
     ${PLATFORM_SOURCES}
 )
 
-target_link_libraries(lightapr PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(lightapr PRIVATE nlohmann_json::nlohmann_json apr_embedded_assets)
 
 if(WIN32)
     target_link_libraries(lightapr PRIVATE ws2_32 wsock32)

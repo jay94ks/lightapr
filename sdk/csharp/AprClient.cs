@@ -70,6 +70,18 @@ namespace Apr.Sdk
         public List<NodeInfo> Nodes { get; set; } = new();
     }
 
+    // Canonical APR connection procedure (mirrored - deliberately, not
+    // accidentally - across sdk/csharp, sdk/nodejs, sdk/ts, and sdk/cpp):
+    //   1. Open the MQTT connection (username "{role}_{suffix}", password
+    //      "{accessKey}{username}").
+    //   2. Subscribe to "apr/+" so topology events start queuing immediately.
+    //   3. Publish "apr/node/meta" with { role, workers, endpoint }.
+    //   4. Fetch a full registry snapshot over HTTP (GET /registry) to seed
+    //      local state without waiting for a slow trickle of individual events.
+    //   5. Drain the events that queued during steps 2-4 (_syncQueue) on top
+    //      of the snapshot, then switch to applying further events live.
+    // Any SDK client should be recognizable against this sequence; if you're
+    // implementing a 5th language binding, follow the same order.
     public class AprClient
     {
         private readonly AprClientOptions _options;
@@ -82,6 +94,11 @@ namespace Apr.Sdk
         private bool _isReconciled;
 
         public event Action<NodeInfo>? NodeStatusChanged;
+        // Raised for transient failures that would otherwise be swallowed
+        // silently (failed HTTP fetch, malformed event payload, etc.) - the
+        // client keeps running regardless, but callers that care can observe
+        // and log these instead of them vanishing.
+        public event Action<Exception>? ErrorOccurred;
 
         public AprClient(AprClientOptions options)
         {
@@ -170,7 +187,10 @@ namespace Apr.Sdk
                     return JsonSerializer.Deserialize<NodeInfo>(json);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(ex);
+            }
             return null;
         }
 
@@ -241,7 +261,10 @@ namespace Apr.Sdk
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(ex);
+            }
         }
 
         private void ReconcileQueue()
@@ -293,7 +316,10 @@ namespace Apr.Sdk
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    ErrorOccurred?.Invoke(new Exception($"Failed to parse {topic} payload: {ex.Message}", ex));
+                }
             }
             else if (topic.StartsWith("app/"))
             {

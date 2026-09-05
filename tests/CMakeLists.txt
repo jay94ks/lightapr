@@ -7,12 +7,13 @@ add_executable(unit_tests
     unit/test_registry_concurrency.cpp
     unit/test_http_server.cpp
     unit/test_connection_guard.cpp
+    unit/test_memory_tracker.cpp
     ${CORE_SOURCES}
     ${MQTT_SOURCES}
     ${HTTP_SOURCES}
 )
 
-target_link_libraries(unit_tests PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(unit_tests PRIVATE nlohmann_json::nlohmann_json apr_embedded_assets)
 
 if(WIN32)
     target_link_libraries(unit_tests PRIVATE ws2_32 wsock32)

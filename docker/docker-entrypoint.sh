@@ -19,6 +19,8 @@ MAX_CONNECTIONS_PER_IP="${MAX_CONNECTIONS_PER_IP:-100}"
 MAX_NEW_CONNECTIONS_PER_IP="${MAX_NEW_CONNECTIONS_PER_IP:-20}"
 CONNECTION_RATE_WINDOW_SEC="${CONNECTION_RATE_WINDOW_SEC:-10}"
 MAX_REQUESTS_PER_CONNECTION="${MAX_REQUESTS_PER_CONNECTION:-10000}"
+MONITOR="${MONITOR:-false}"
+TESTER="${TESTER:-false}"
 
 # Build argument array
 ARGS=""
@@ -89,6 +91,14 @@ fi
 
 if [ -n "$MAX_REQUESTS_PER_CONNECTION" ]; then
     ARGS="$ARGS --max-requests-per-connection $MAX_REQUESTS_PER_CONNECTION"
+fi
+
+if [ "$MONITOR" = "true" ] || [ "$MONITOR" = "1" ]; then
+    ARGS="$ARGS --monitor"
+fi
+
+if [ "$TESTER" = "true" ] || [ "$TESTER" = "1" ]; then
+    ARGS="$ARGS --tester"
 fi
 
 echo "[LightAPR Docker Entrypoint] Executing lightapr with arguments:$ARGS"

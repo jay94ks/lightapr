@@ -45,8 +45,9 @@ APR 프로토콜을 손쉽게 활용할 수 있도록 다국어 공통 SDK와 �
   - `examples/http_node`: 엔드포인트 서버를 갖춘 서비스 노드 예제
   - `examples/worker_node`: 엔드포인트가 없는 백그라운드 워커 노드 예제
   - `examples/ts/`, `examples/csharp/`, `examples/cpp/`: 언어별 예제 변형 구현체
-- **모니터링 앱 (`monitor/html/index.html`)**:
-  - LightAPR 상태 관측, 노드 조회, 로드밸런서 테스트 및 웹소켓 이벤트 뷰어 웹 대시보드
+- **모니터·테스터 웹 앱 (`monitor/`)**: 외부 의존성 없는 단일 HTML/CSS/JS 파일로, 빌드 타임에 `lightapr` 바이너리에 직접 컴파일되어 임베드되며(런타임에 별도 파일 불필요), 명시적으로 활성화했을 때만 HTTP로 서빙됩니다:
+  - `monitor/html/index.html`: 읽기 전용 관측 대시보드 — 서버 상태, 7분류 메모리 내역, 실시간 연결 수, 노드 레지스트리 테이블, WS MQTT 기반 실시간 토폴로지 이벤트 피드. `--monitor`로 기동 시 `GET /monitor`(및 `GET /`)에서 제공.
+  - `monitor/tester/index.html`: 모든 데몬 기능을 브라우저에서 직접 시험해볼 수 있는 인터랙티브 플레이그라운드 — 각 REST 엔드포인트용 HTTP Playground, 연결/구독/발행 및 디코딩된 실시간 메시지 로그를 갖춘 MQTT Playground, 노드 등록 시뮬레이터, 아래 연결/속도 제한을 직접 확인할 수 있는 상한 있는 버스트 요청 도구. `--tester`로 기동 시 `GET /tester`에서 제공.
 
 ## 6. 도커 컨테이너 이미지 & Docker Compose (Docker & Compose)
 
@@ -77,6 +78,8 @@ LightAPR 서버 데몬은 Docker Hub 컨테이너 이미지로 제공되며, `1.
   - `MAX_NEW_CONNECTIONS_PER_IP`: 단일 소스 IP가 `CONNECTION_RATE_WINDOW_SEC` 시간 내에 새로 맺을 수 있는 최대 연결 수; `0`이면 무제한 (기본값: `20`)
   - `CONNECTION_RATE_WINDOW_SEC`: `MAX_NEW_CONNECTIONS_PER_IP`가 사용하는 슬라이딩 윈도우(초) (기본값: `10`)
   - `MAX_REQUESTS_PER_CONNECTION`: Keep-Alive 연결 하나로 처리할 수 있는 최대 HTTP 요청 수; 초과 시 연결을 종료해 재연결을 강제(재연결은 다시 속도 제한 대상) (`0`이면 무제한, 기본값: `10000`)
+  - `MONITOR`: `/monitor`(및 `/`)에서 읽기 전용 모니터 대시보드 제공 여부 (기본값: `false` — 명시적으로 켜야 노출)
+  - `TESTER`: `/tester`에서 인터랙티브 테스터 앱 제공 여부 (기본값: `false` — 명시적으로 켜야 노출)
 
 ### 고부하 및 DDoS 내성 (High-Load & DDoS Resilience)
 LightAPR은 연결 폭주나 악의적인 클라이언트에도 서버 자원이 고갈되지 않도록 설계되었습니다:
@@ -84,6 +87,15 @@ LightAPR은 연결 폭주나 악의적인 클라이언트에도 서버 자원이
 - **유휴·버퍼 상한**: 모든 세션은 `IDLE_TIMEOUT`·`MAX_BUFFER_BYTES`를 초과하면 강제 종료되어, 느리거나 멈춘 클라이언트가 차지하는 자원을 의도와 무관하게 제한합니다.
 - **MQTT 브루트포스 방어**: 인증 실패(잘못된 자격 증명 또는 손상된 패킷) 시 오류 응답 직후 연결을 즉시 종료합니다 — 이전에는 같은 연결에서 무제한 재시도가 가능했지만, 이제 재시도마다 재연결이 필요하며 재연결은 위 속도 제한의 대상이 됩니다.
 - **HTTP Keep-Alive 남용 방지**: `MAX_REQUESTS_PER_CONNECTION`으로 연결 하나가 처리할 수 있는 요청 수를 제한해, Keep-Alive를 이용해 IP별 속도 제한을 우회하지 못하도록 합니다.
+
+위 제한들이 실제로 동작하는 모습을 직접 확인하려면: `--tester`를 켜고 `/tester`를 연 뒤 "Burst Request Test" 도구(최대 100회로 상한)를 사용해 한도 초과 시 연결이 거부되는 것을 확인할 수 있습니다.
+
+### 모니터·테스터 웹 앱
+두 운영자용 웹 앱은 `lightapr` 바이너리에 빌드 타임에 직접 컴파일되어 임베드되며([`cmake/EmbedFile.cmake`](https://github.com/jay94ks/lightapr/blob/main/cmake/EmbedFile.cmake)가 바이트 배열로 변환 — 별도 배포 파일 불필요), 디스커버리 API의 일부가 아닌 디버그/운영 도구이므로 기본값은 꺼짐입니다:
+- **`--monitor`** → `http://<host>:<http_port>/monitor` (및 `/`): 실시간 대시보드 — 노드 레지스트리, 7분류 메모리 내역(`registry`/`mqtt_rx`/`mqtt_tx`/`http_rx`/`http_tx`/`other` + OS RSS), 실시간 연결 수, 디코딩된 WS MQTT 토폴로지 이벤트 피드.
+- **`--tester`** → `http://<host>:<http_port>/tester`: 모든 HTTP 엔드포인트·MQTT 동작(연결/구독/발행)을 위한 인터랙티브 플레이그라운드, 노드 등록 시뮬레이터, 위에서 언급한 버스트 요청 도구.
+
+두 앱 모두 플래그(Docker에서는 `MONITOR=true`/`TESTER=true`)만 켜면 되며, HTML이 `monitor/html/index.html`과 `monitor/tester/index.html`로부터 컴파일 타임에 임베드되므로 별도 빌드 단계가 필요 없습니다.
 
 ### CLI 옵션 및 설정 파일
 LightAPR은 모든 설정을 CLI 인자로 받을 수 있으며, 인자가 길어지는 것을 피하려면 `-f/--config <경로>` 옵션으로 JSON 설정 파일을 지정할 수도 있습니다:
@@ -107,6 +119,8 @@ LightAPR은 모든 설정을 CLI 인자로 받을 수 있으며, 인자가 길�
 | `--max-new-connections-per-ip` | 소스 IP별 신규 연결 속도 상한 (`0`=무제한) | `20` |
 | `--connection-rate-window-sec` | 속도 제한 윈도우(초) | `10` |
 | `--max-requests-per-connection` | Keep-Alive 연결당 최대 HTTP 요청 수 (`0`=무제한) | `10000` |
+| `--monitor` | 모니터 대시보드를 `/monitor`(및 `/`)에서 제공 | 꺼짐 |
+| `--tester` | 인터랙티브 테스터 앱을 `/tester`에서 제공 | 꺼짐 |
 
 예시 설정 파일은 [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json)에 있습니다:
 ```json
@@ -126,7 +140,9 @@ LightAPR은 모든 설정을 CLI 인자로 받을 수 있으며, 인자가 길�
     "max_connections_per_ip": 100,
     "max_new_connections_per_ip": 20,
     "connection_rate_window_sec": 10,
-    "max_requests_per_connection": 10000
+    "max_requests_per_connection": 10000,
+    "monitor": false,
+    "tester": false
 }
 ```
 우선순위: 내장 기본값 → `--config` 파일 → 명시적으로 지정한 다른 CLI 인자(argv 순서와 무관하게 해당 필드에 대해 항상 최우선).
@@ -173,6 +189,8 @@ services:
       - MAX_CONNECTIONS=10000
       - MAX_CONNECTIONS_PER_IP=100
       - MAX_NEW_CONNECTIONS_PER_IP=20
+      - MONITOR=false
+      - TESTER=false
 ```
 
 ```bash

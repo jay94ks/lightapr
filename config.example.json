@@ -14,5 +14,7 @@
     "max_connections_per_ip": 100,
     "max_new_connections_per_ip": 20,
     "connection_rate_window_sec": 10,
-    "max_requests_per_connection": 10000
+    "max_requests_per_connection": 10000,
+    "monitor": false,
+    "tester": false
 }

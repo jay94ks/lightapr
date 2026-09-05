@@ -98,12 +98,19 @@ GET /status
   },
   
   "memory": {
-    "total": <사용중인 총 메모리 크기, KB>,
-    "meta": <메타데이터 유지용으로 사용중인 크기, KB>,
-    "mqtt": <MQTT 프로토콜 자체가 사용하는 크기, KB>,
-    "etc": <기타 등등, KB>
+    "total": <프로세스 총 RSS, KB (OS 보고값)>,
+    "registry": <레지스트리 노드 메타데이터가 사용중인 크기, KB (라이브 게이지)>,
+    "mqtt_rx": <MQTT로 수신한 누적 바이트, KB>,
+    "mqtt_tx": <MQTT로 송신한 누적 바이트, KB>,
+    "http_rx": <HTTP로 수신한 누적 바이트, KB>,
+    "http_tx": <HTTP로 송신한 누적 바이트, KB>,
+    "other": <기타(로거 큐 등), KB (라이브 게이지)>
   },
-  
+
+  "connections": {
+    "total": <MQTT(TCP+WS)와 HTTP를 합산한 현재 활성 연결 수>
+  },
+
   "roles": {
     <role 키>: <등록된 role 갯수>,
   },
@@ -129,15 +136,22 @@ Query Parameters:
         {
             "id": "노드의 ID",
             "role": "노드의 역할",
-            
+            "workers": [
+                "해당 노드가 등록한 작업자 1",
+                "해당 노드가 등록한 작업자 2",
+                ...
+            ],
+
             "endpoint": {
                 "addr": "해당 노드의 IP 주소",
                 "port": "해당 노드의 포트 번호",
                 "scheme": "끝점의 프로토콜 스키마"
             } | null,
 
+            "status": "OK" | "GRACE" | "ERASED",
             "added_at": <이 노드가 등록된 시간, unix 타임스탬프>,
-            "active_at": <이 노드가 마지막으로 어떤 동작을 한 시간, unix 타임스탬프>
+            "active_at": <이 노드가 마지막으로 어떤 동작을 한 시간, unix 타임스탬프>,
+            "expires_in": null (연결이 살아있음) 또는 <잔여 유예 시간>
         }
     ]
 }
@@ -184,6 +198,13 @@ Query Parameters:
         "scheme": "끝점의 프로토콜 스키마"
     } | null
 }
+```
+
+### 모니터·테스터 웹 앱 (선택적, `text/html`)
+아래 두 라우트는 JSON API가 아니라, 빌드 타임에 데몬 바이너리에 임베드된 정적 웹 앱을 서빙합니다. 디스커버리 API의 일부가 아닌 운영/디버그 도구이므로 각각 대응하는 CLI 플래그(`--monitor`, `--tester`) 또는 환경변수(`MONITOR`, `TESTER`)로 명시적으로 켜야만 노출되며, 기본값은 꺼짐입니다. 꺼진 상태에서 접근하면 다른 미등록 경로와 동일하게 404를 반환합니다.
+```
+GET /monitor  (--monitor 활성화 시, GET / 도 동일하게 응답)
+GET /tester   (--tester 활성화 시)
 ```
 
 ## 새 노드가 부팅될 때 동작 절차.

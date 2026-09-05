@@ -47,7 +47,7 @@ void mqtt_session::send_raw(std::shared_ptr<const std::vector<uint8_t>> data, bo
         send_buf = std::make_shared<const std::vector<uint8_t>>(std::move(framed));
     }
 
-    memory_tracker::instance().add_mqtt_bytes(send_buf->size());
+    memory_tracker::instance().add_mqtt_tx_bytes(send_buf->size());
 
     asio::async_write(socket_, asio::buffer(*send_buf), asio::bind_executor(strand_, [self, this, send_buf](std::error_code ec, size_t /*bytes*/) {
         if (ec) {
@@ -70,7 +70,7 @@ void mqtt_session::send_raw_and_close(const std::vector<uint8_t>& data) {
         send_buf = std::make_shared<const std::vector<uint8_t>>(data);
     }
 
-    memory_tracker::instance().add_mqtt_bytes(send_buf->size());
+    memory_tracker::instance().add_mqtt_tx_bytes(send_buf->size());
 
     asio::async_write(socket_, asio::buffer(*send_buf), asio::bind_executor(strand_, [self, this, send_buf](std::error_code ec, size_t /*bytes*/) {
         if (ec) {
@@ -93,7 +93,7 @@ bool mqtt_session::matches_topic(const std::string& topic) const {
 
 void mqtt_session::on_bytes_read(const uint8_t* data, size_t bytes_transferred) {
     auto self = shared_from_this(); // kept alive for async writes issued below
-    memory_tracker::instance().add_mqtt_bytes(bytes_transferred);
+    memory_tracker::instance().add_mqtt_rx_bytes(bytes_transferred);
 
     if (!ws_handshake_done_) {
         rx_acc_.append(data, bytes_transferred);

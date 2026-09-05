@@ -7,10 +7,25 @@
 #include <iostream>
 #include <thread>
 #include <atomic>
+#include <random>
 #include <sstream>
 #include <cstdlib>
 
 namespace apr::sdk {
+namespace {
+// RFC 6455 requires Sec-WebSocket-Key to be 16 random bytes, base64-encoded,
+// freshly generated per connection - NOT a fixed value (a static key would
+// be spec-noncompliant and could be rejected by strict server
+// implementations, or make handshake replay trivially detectable).
+std::string generate_ws_nonce() {
+    std::vector<uint8_t> nonce(16);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(0, 255);
+    for (auto& b : nonce) b = static_cast<uint8_t>(dist(gen));
+    return websocket_codec::base64_encode(nonce);
+}
+} // namespace
 
 static void parse_url(const std::string& url, std::string& scheme, std::string& host, std::string& port, std::string& path) {
     scheme = "mqtt";
@@ -60,6 +75,7 @@ public:
     }
 
     bool start() {
+        last_error_.clear();
         try {
             std::string scheme, host, port, path;
             parse_url(opts_.mqtt_url, scheme, host, port, path);
@@ -75,7 +91,7 @@ public:
                                   "Host: " + host + ":" + port + "\r\n" +
                                   "Upgrade: websocket\r\n" +
                                   "Connection: Upgrade\r\n" +
-                                  "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+                                  "Sec-WebSocket-Key: " + generate_ws_nonce() + "\r\n" +
                                   "Sec-WebSocket-Version: 13\r\n" +
                                   "Sec-WebSocket-Protocol: mqtt\r\n\r\n";
                 asio::write(socket_, asio::buffer(req));
@@ -90,6 +106,7 @@ public:
                 }
 
                 if (resp.find("101") == std::string::npos) {
+                    last_error_ = "WebSocket handshake was not accepted (no HTTP 101 response)";
                     return false;
                 }
             }
@@ -109,9 +126,12 @@ public:
 
             return true;
         } catch (const std::exception& e) {
+            last_error_ = e.what();
             return false;
         }
     }
+
+    const std::string& last_error() const { return last_error_; }
 
     void stop() {
         if (running_) {
@@ -300,7 +320,9 @@ private:
                     }
                 }
             }
-        } catch (...) {}
+        } catch (const std::exception& e) {
+            std::cerr << "[apr_sdk] fetch_snapshot failed: " << e.what() << std::endl;
+        }
     }
 
     void reconcile_queue() {
@@ -393,7 +415,9 @@ private:
                 } else {
                     apply_node_event(node);
                 }
-            } catch (...) {}
+            } catch (const std::exception& e) {
+                std::cerr << "[apr_sdk] Failed to parse " << topic << " payload: " << e.what() << std::endl;
+            }
         } else if (topic.rfind("app/", 0) == 0) {
             std::lock_guard<std::mutex> lock(app_mutex_);
             auto it = app_callbacks_.find(topic);
@@ -425,6 +449,7 @@ private:
     node_status_callback status_cb_;
 
     std::vector<uint8_t> stream_buf_;
+    std::string last_error_;
 };
 
 apr_client::apr_client(const client_options& opts)
@@ -434,6 +459,7 @@ apr_client::~apr_client() = default;
 
 bool apr_client::start() { return pimpl_->start(); }
 void apr_client::stop() { pimpl_->stop(); }
+const std::string& apr_client::last_error() const { return pimpl_->last_error(); }
 
 std::optional<apr::node_info> apr_client::resolve_node(const std::string& role, const std::string& worker) {
     return pimpl_->resolve_node(role, worker);

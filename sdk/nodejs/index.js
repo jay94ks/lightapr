@@ -1,6 +1,18 @@
 const mqtt = require('mqtt');
 const { EventEmitter } = require('events');
 
+// Canonical APR connection procedure (mirrored - deliberately, not
+// accidentally - across sdk/nodejs, sdk/ts, sdk/csharp, and sdk/cpp):
+//   1. Open the MQTT connection (username "{role}_{suffix}", password
+//      "{accessKey}{username}").
+//   2. Subscribe to "apr/+" so topology events start queuing immediately.
+//   3. Publish "apr/node/meta" with { role, workers, endpoint }.
+//   4. Fetch a full registry snapshot over HTTP (GET /registry) to seed
+//      local state without waiting for a slow trickle of individual events.
+//   5. Drain the events that queued during steps 2-4 (`syncQueue`) on top of
+//      the snapshot, then switch to applying further events live.
+// Any SDK client should be recognizable against this sequence; if you're
+// implementing a 5th language binding, follow the same order.
 class AprClient extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -97,7 +109,9 @@ class AprClient extends EventEmitter {
     try {
       const res = await fetch(`${this.httpUrl}/resolve?${query}`);
       if (res.ok) return await res.json();
-    } catch (e) {}
+    } catch (err) {
+      this.emit('error', err);
+    }
     return null;
   }
 
@@ -132,7 +146,9 @@ class AprClient extends EventEmitter {
           }
         }
       }
-    } catch (err) {}
+    } catch (err) {
+      this.emit('error', err);
+    }
   }
 
   _reconcileQueue() {
@@ -167,32 +183,13 @@ class AprClient extends EventEmitter {
         } else {
           this._applyNodeEvent(nodeInfo);
         }
-      } catch (e) {}
+      } catch (err) {
+        this.emit('error', new Error(`Failed to parse ${topic} payload: ${err.message}`));
+      }
     } else if (topic.startsWith('app/')) {
       let data = payloadStr;
       try { data = JSON.parse(payloadStr); } catch (e) {}
       this.emit(`app_event:${topic}`, data, topic);
-    }
-  }
-}
-
-module.exports = { AprClient };
-          this.syncQueue.push(nodeInfo);
-        } else {
-          this._applyNodeEvent(nodeInfo);
-        }
-      } catch (e) {
-        // Ignored
-      }
-    } else if (topic.startsWith('app/')) {
-      const callbacks = this.appCallbacks.get(topic);
-      if (callbacks) {
-        let data = payloadStr;
-        try { data = JSON.parse(payloadStr); } catch (e) {}
-        for (const cb of callbacks) {
-          cb(data, topic);
-        }
-      }
     }
   }
 }

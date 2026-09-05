@@ -1,4 +1,5 @@
 #include "apr/logger.hpp"
+#include "apr/memory_tracker.hpp"
 #include <iostream>
 #include <chrono>
 #include <iomanip>
@@ -56,8 +57,19 @@ std::string async_logger::current_timestamp() {
     return ss.str();
 }
 
+namespace {
+// Rough footprint of one queued log_message, for the "other" memory_tracker
+// bucket - a live gauge of how much the (unbounded) async log queue is
+// currently holding, useful as an early warning if log volume outpaces the
+// worker thread's drain rate.
+int64_t estimate_log_message_bytes(const log_message& msg) {
+    return static_cast<int64_t>(sizeof(log_message) + msg.message.size() + msg.timestamp.size());
+}
+} // namespace
+
 void async_logger::log(log_level level, const std::string& message) {
     log_message msg{level, message, current_timestamp()};
+    memory_tracker::instance().add_other_bytes(estimate_log_message_bytes(msg));
     {
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.push(msg);
@@ -108,6 +120,7 @@ void async_logger::worker_loop() {
         }
 
         while (!local.empty()) {
+            memory_tracker::instance().add_other_bytes(-estimate_log_message_bytes(local.front()));
             write_entry(local.front());
             local.pop();
         }

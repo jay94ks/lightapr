@@ -127,6 +127,7 @@ void run_stream_accumulator_tests();
 void run_registry_concurrency_tests();
 void run_http_server_tests();
 void run_connection_guard_tests();
+void run_memory_tracker_tests();
 
 int main() {
     test_register_and_resolve();
@@ -141,6 +142,7 @@ int main() {
     run_registry_concurrency_tests();
     run_http_server_tests();
     run_connection_guard_tests();
+    run_memory_tracker_tests();
     std::cout << "All unit tests passed successfully!" << std::endl;
     return 0;
 }

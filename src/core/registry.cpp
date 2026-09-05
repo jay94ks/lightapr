@@ -90,7 +90,7 @@ node_info registry::register_or_update_node(const std::string& role,
         it = nodes_.emplace(node_id, std::move(node)).first;
 
         // Estimate memory usage for metadata tracking
-        memory_tracker::instance().add_meta_bytes(sizeof(node_info) + role.size() + node_id.size());
+        memory_tracker::instance().add_registry_bytes(sizeof(node_info) + role.size() + node_id.size());
     }
 
     // Snapshot for use after the lock is released (returned to the caller and
@@ -162,7 +162,7 @@ bool registry::remove_node_permanently(const std::string& node_id) {
     erased_node.expires_in = 0;
 
     nodes_.erase(it);
-    memory_tracker::instance().add_meta_bytes(-static_cast<int64_t>(sizeof(node_info) + erased_node.role.size() + erased_node.id.size()));
+    memory_tracker::instance().add_registry_bytes(-static_cast<int64_t>(sizeof(node_info) + erased_node.role.size() + erased_node.id.size()));
 
     std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
     lock.unlock();

@@ -1,6 +1,19 @@
 import * as mqtt from 'mqtt';
 import { EventEmitter } from 'events';
 
+// Canonical APR connection procedure (mirrored - deliberately, not
+// accidentally - across sdk/nodejs, sdk/ts, sdk/csharp, and sdk/cpp):
+//   1. Open the MQTT connection (username "{role}_{suffix}", password
+//      "{accessKey}{username}").
+//   2. Subscribe to "apr/+" so topology events start queuing immediately.
+//   3. Publish "apr/node/meta" with { role, workers, endpoint }.
+//   4. Fetch a full registry snapshot over HTTP (GET /registry) to seed
+//      local state without waiting for a slow trickle of individual events.
+//   5. Drain the events that queued during steps 2-4 (`syncQueue`) on top of
+//      the snapshot, then switch to applying further events live.
+// Any SDK client should be recognizable against this sequence; if you're
+// implementing a 5th language binding, follow the same order.
+
 export interface EndpointInfo {
   addr: string;
   port: number;
@@ -131,7 +144,9 @@ export class AprClient extends EventEmitter {
     try {
       const res = await fetch(`${this.httpUrl}/resolve?${query}`);
       if (res.ok) return (await res.json()) as NodeInfo;
-    } catch (e) {}
+    } catch (err) {
+      this.emit('error', err as Error);
+    }
     return null;
   }
 
@@ -166,7 +181,9 @@ export class AprClient extends EventEmitter {
           }
         }
       }
-    } catch (e) {}
+    } catch (err) {
+      this.emit('error', err as Error);
+    }
   }
 
   private reconcileQueue(): void {
@@ -201,7 +218,9 @@ export class AprClient extends EventEmitter {
         } else {
           this.applyNodeEvent(nodeInfo);
         }
-      } catch (e) {}
+      } catch (err) {
+        this.emit('error', new Error(`Failed to parse ${topic} payload: ${(err as Error).message}`));
+      }
     } else if (topic.startsWith('app/')) {
       let data: any = payloadStr;
       try { data = JSON.parse(payloadStr); } catch (e) {}

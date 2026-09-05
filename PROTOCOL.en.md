@@ -96,12 +96,19 @@ GET /status
   },
   
   "memory": {
-    "total": <Total memory footprint in KB>,
-    "meta": <Metadata storage memory in KB>,
-    "mqtt": <MQTT protocol memory in KB>,
-    "etc": <Other memory in KB>
+    "total": <Total process RSS in KB (OS-reported)>,
+    "registry": <Registry node metadata footprint in KB (live gauge)>,
+    "mqtt_rx": <Cumulative MQTT bytes received, KB>,
+    "mqtt_tx": <Cumulative MQTT bytes sent, KB>,
+    "http_rx": <Cumulative HTTP bytes received, KB>,
+    "http_tx": <Cumulative HTTP bytes sent, KB>,
+    "other": <Misc (logger queue, etc.), KB (live gauge)>
   },
-  
+
+  "connections": {
+    "total": <Current live connections, MQTT (TCP+WS) + HTTP combined>
+  },
+
   "roles": {
     <role_key>: <Count of registered nodes for this role>
   },
@@ -127,15 +134,22 @@ Query Parameters:
         {
             "id": "Node ID",
             "role": "Node role",
-            
+            "workers": [
+                "Worker 1 registered by node",
+                "Worker 2 registered by node",
+                ...
+            ],
+
             "endpoint": {
                 "addr": "Node IP address",
                 "port": "Node port number",
                 "scheme": "Endpoint protocol scheme"
             } | null,
 
+            "status": "OK" | "GRACE" | "ERASED",
             "added_at": <Unix timestamp when node registered>,
-            "active_at": <Unix timestamp of node's last activity>
+            "active_at": <Unix timestamp of node's last activity>,
+            "expires_in": null (connection alive) or <Remaining grace time in seconds>
         }
     ]
 }
@@ -182,6 +196,13 @@ Query Parameters:
         "scheme": "Endpoint protocol scheme"
     } | null
 }
+```
+
+### Monitor & Tester Web Apps (Optional, `text/html`)
+These two routes aren't JSON APIs - they serve static web apps embedded into the daemon binary at build time. Since they're operator/debug tools rather than part of the discovery API, each is exposed only when explicitly enabled via its CLI flag (`--monitor`, `--tester`) or environment variable (`MONITOR`, `TESTER`); both default to off. Accessing either while disabled returns a 404, same as any other unrecognized route.
+```
+GET /monitor  (also served at GET / when --monitor is enabled)
+GET /tester   (when --tester is enabled)
 ```
 
 ## Bootstrapping Sequence for New Nodes

@@ -30,3 +30,5 @@ services:
       - MAX_NEW_CONNECTIONS_PER_IP=20
       - CONNECTION_RATE_WINDOW_SEC=10
       - MAX_REQUESTS_PER_CONNECTION=10000
+      - MONITOR=false  # set true to expose the dashboard at /monitor (and /)
+      - TESTER=false   # set true to expose the interactive test app at /tester

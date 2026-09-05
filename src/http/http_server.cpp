@@ -1,4 +1,5 @@
 #include "http_server.hpp"
+#include "apr/embedded_assets.hpp"
 #include "apr/memory_tracker.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -10,6 +11,8 @@ http_session::http_session(asio::ip::tcp::socket socket,
                            const std::string& cell_id,
                            std::chrono::steady_clock::time_point start_time,
                            connection_guard& conn_guard,
+                           bool monitor_enabled,
+                           bool tester_enabled,
                            size_t max_buffer_bytes,
                            std::chrono::seconds idle_timeout,
                            size_t max_requests_per_connection)
@@ -18,6 +21,8 @@ http_session::http_session(asio::ip::tcp::socket socket,
       cell_id_(cell_id),
       start_time_(start_time),
       conn_guard_(conn_guard),
+      monitor_enabled_(monitor_enabled),
+      tester_enabled_(tester_enabled),
       max_requests_per_connection_(max_requests_per_connection) {}
 
 void http_session::on_before_close() {
@@ -29,6 +34,7 @@ void http_session::start() {
 }
 
 void http_session::on_bytes_read(const uint8_t* data, size_t n) {
+    memory_tracker::instance().add_http_rx_bytes(static_cast<int64_t>(n));
     request_acc_.append(reinterpret_cast<const char*>(data), n);
 
     if (exceeds_buffer_cap(request_acc_.total_capacity())) {
@@ -79,6 +85,8 @@ void http_session::try_process_next_request() {
     response_data_ += keep_alive ? "\r\nConnection: keep-alive\r\n\r\n" : "\r\nConnection: close\r\n\r\n";
     response_data_ += res.body;
 
+    memory_tracker::instance().add_http_tx_bytes(static_cast<int64_t>(response_data_.size()));
+
     auto self = shared_from_this();
     asio::async_write(socket_, asio::buffer(response_data_),
         asio::bind_executor(strand_, [self, this, keep_alive](std::error_code ec, size_t /*bytes*/) {
@@ -96,6 +104,18 @@ void http_session::try_process_next_request() {
 
 http_response http_session::route_request(const http_request& req) {
     http_response res;
+
+    if (monitor_enabled_ && (req.path == "/monitor" || req.path == "/")) {
+        res.content_type = "text/html";
+        res.body.assign(reinterpret_cast<const char*>(embedded::monitor_html_data), embedded::monitor_html_size);
+        return res;
+    }
+
+    if (tester_enabled_ && req.path == "/tester") {
+        res.content_type = "text/html";
+        res.body.assign(reinterpret_cast<const char*>(embedded::tester_html_data), embedded::tester_html_size);
+        return res;
+    }
 
     if (req.path == "/healthz") {
         auto now = std::chrono::steady_clock::now();
@@ -121,6 +141,9 @@ http_response http_session::route_request(const http_request& req) {
                 {"grace", stats.grace_nodes}
             }},
             {"memory", mem},
+            {"connections", {
+                {"total", conn_guard_.total_connections()}
+            }},
             {"roles", stats.roles},
             {"workers", stats.workers}
         };
@@ -225,6 +248,8 @@ http_server::http_server(asio::io_context& io_ctx,
                          registry& reg,
                          const std::string& cell_id,
                          connection_guard& conn_guard,
+                         bool monitor_enabled,
+                         bool tester_enabled,
                          size_t max_session_buffer_bytes,
                          std::chrono::seconds session_idle_timeout,
                          size_t max_requests_per_connection)
@@ -234,6 +259,8 @@ http_server::http_server(asio::io_context& io_ctx,
       cell_id_(cell_id),
       start_time_(std::chrono::steady_clock::now()),
       conn_guard_(conn_guard),
+      monitor_enabled_(monitor_enabled),
+      tester_enabled_(tester_enabled),
       max_session_buffer_bytes_(max_session_buffer_bytes),
       session_idle_timeout_(session_idle_timeout),
       max_requests_per_connection_(max_requests_per_connection) {}
@@ -265,7 +292,8 @@ void http_server::do_accept() {
                 socket.close(close_ec);
             } else {
                 auto session = std::make_shared<http_session>(std::move(socket), registry_, cell_id_, start_time_,
-                                                               conn_guard_, max_session_buffer_bytes_,
+                                                               conn_guard_, monitor_enabled_, tester_enabled_,
+                                                               max_session_buffer_bytes_,
                                                                session_idle_timeout_, max_requests_per_connection_);
                 session->start();
             }

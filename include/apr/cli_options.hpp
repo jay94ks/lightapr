@@ -28,6 +28,13 @@ struct cli_options {
     size_t connection_rate_window_sec{10};
     size_t max_requests_per_connection{10000}; // HTTP keep-alive only; 0 = unlimited
 
+    // Serve the embedded monitor/tester web apps at GET /monitor (and GET /)
+    // / GET /tester respectively. Off by default: these are operator/debug
+    // tools, not part of the discovery API, so they must be explicitly
+    // opted into.
+    bool monitor_enabled{false};
+    bool tester_enabled{false};
+
     static cli_options parse(int argc, char* argv[]);
 
     // Loads options from a JSON config file, overriding any field present in the file.

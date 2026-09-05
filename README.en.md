@@ -45,8 +45,9 @@ Multi-language SDKs and example projects are provided for seamless APR integrati
   - `examples/http_node`: Service node example exposing an HTTP endpoint
   - `examples/worker_node`: Background worker node example without an HTTP endpoint
   - `examples/ts/`, `examples/csharp/`, `examples/cpp/`: Language-specific example variations
-- **Monitoring Web App (`monitor/html/index.html`)**:
-  - Web dashboard for LightAPR observability, node registry viewing, load balancer testing, and WebSocket event viewing.
+- **Monitor & Tester Web Apps (`monitor/`)**: dependency-free, single-file HTML/CSS/JS apps, compiled directly into the `lightapr` binary at build time (no external file needed at runtime) and served over HTTP when explicitly enabled:
+  - `monitor/html/index.html`: read-only observability dashboard - server status, the 7-way memory breakdown, live connection count, the node registry table, and a live topology event feed over WebSocket MQTT. Served at `GET /monitor` (and `GET /`) when started with `--monitor`.
+  - `monitor/tester/index.html`: interactive playground to exercise every daemon feature from a browser - an HTTP Playground for each REST endpoint, an MQTT Playground (connect/subscribe/publish with a decoded live message log), a node-registration simulator, and a capped burst-request tool that demonstrates the connection/rate limits below. Served at `GET /tester` when started with `--tester`.
 
 ## 6. Docker Container Image & Docker Compose
 
@@ -77,6 +78,8 @@ The LightAPR server daemon is published as a Docker Hub container image availabl
   - `MAX_NEW_CONNECTIONS_PER_IP`: Max new connections a single source IP may open within `CONNECTION_RATE_WINDOW_SEC`; `0` = unlimited (Default: `20`)
   - `CONNECTION_RATE_WINDOW_SEC`: Sliding window (seconds) used by `MAX_NEW_CONNECTIONS_PER_IP` (Default: `10`)
   - `MAX_REQUESTS_PER_CONNECTION`: Max HTTP requests served over one keep-alive connection before the server closes it (forcing a reconnect, which is then rate-limited again); `0` = unlimited (Default: `10000`)
+  - `MONITOR`: Serve the read-only monitor dashboard at `/monitor` (and `/`) (Default: `false` - off unless explicitly enabled)
+  - `TESTER`: Serve the interactive tester app at `/tester` (Default: `false` - off unless explicitly enabled)
 
 ### High-Load & DDoS Resilience
 LightAPR is designed to survive connection floods and abusive clients without exhausting server resources:
@@ -84,6 +87,15 @@ LightAPR is designed to survive connection floods and abusive clients without ex
 - **Idle & buffer-size caps**: every session (`IDLE_TIMEOUT`, `MAX_BUFFER_BYTES`) is force-closed if it goes quiet too long or tries to buffer an unreasonably large partial request/frame — this bounds a slow/stalled client's resource footprint regardless of intent.
 - **MQTT brute-force mitigation**: a failed `CONNECT` (bad credentials or malformed packet) now closes the connection immediately after the error response, instead of allowing unlimited retry attempts on one socket — every retry has to reconnect, and reconnects are rate-limited above.
 - **HTTP keep-alive abuse mitigation**: `MAX_REQUESTS_PER_CONNECTION` bounds how many requests a single connection can push through before being forced to reconnect (and pass the connection-rate check again), so keep-alive can't be used to bypass per-IP throttling.
+
+You can watch these limits in action live: enable `--tester`, open `/tester`, and use its "Burst Request Test" tool (capped at 100 requests) to see connections get rejected once a limit is hit.
+
+### Monitor & Tester Web Apps
+Two operator-facing web apps ship compiled directly into the `lightapr` binary at build time ([`cmake/EmbedFile.cmake`](https://github.com/jay94ks/lightapr/blob/main/cmake/EmbedFile.cmake) embeds them as byte arrays - no separate file to deploy) and are off by default, since they're debug/operator tools rather than part of the discovery API:
+- **`--monitor`** → `http://<host>:<http_port>/monitor` (and `/`): live dashboard - node registry, the 7-way memory breakdown (`registry`/`mqtt_rx`/`mqtt_tx`/`http_rx`/`http_tx`/`other`, plus OS RSS), live connection count, and a decoded WebSocket-MQTT topology event feed.
+- **`--tester`** → `http://<host>:<http_port>/tester`: interactive playground for every HTTP endpoint and MQTT operation (connect/subscribe/publish), a node-registration simulator, and the burst-request tool mentioned above.
+
+Both require only the flag (or `MONITOR=true` / `TESTER=true` in Docker) - no extra build step, since the HTML is embedded at compile time from `monitor/html/index.html` and `monitor/tester/index.html`.
 
 ### CLI Options & Config File
 LightAPR accepts every setting as a CLI flag, or you can point it at a JSON config file with `-f/--config <path>` to avoid a long argument list:
@@ -107,6 +119,8 @@ LightAPR accepts every setting as a CLI flag, or you can point it at a JSON conf
 | `--max-new-connections-per-ip` | Per-source-IP new-connection rate cap (`0` = unlimited) | `20` |
 | `--connection-rate-window-sec` | Rate-limit window, seconds | `10` |
 | `--max-requests-per-connection` | Max HTTP requests per keep-alive connection (`0` = unlimited) | `10000` |
+| `--monitor` | Serve the monitor dashboard at `/monitor` (and `/`) | off |
+| `--tester` | Serve the interactive tester app at `/tester` | off |
 
 A sample config file is provided at [config.example.json](https://github.com/jay94ks/lightapr/blob/main/config.example.json):
 ```json
@@ -126,7 +140,9 @@ A sample config file is provided at [config.example.json](https://github.com/jay
     "max_connections_per_ip": 100,
     "max_new_connections_per_ip": 20,
     "connection_rate_window_sec": 10,
-    "max_requests_per_connection": 10000
+    "max_requests_per_connection": 10000,
+    "monitor": false,
+    "tester": false
 }
 ```
 Precedence: built-in defaults → `--config` file → other explicit CLI flags (which always win for the fields they set, regardless of argument order).
@@ -173,6 +189,8 @@ services:
       - MAX_CONNECTIONS=10000
       - MAX_CONNECTIONS_PER_IP=100
       - MAX_NEW_CONNECTIONS_PER_IP=20
+      - MONITOR=false
+      - TESTER=false
 ```
 
 ```bash
