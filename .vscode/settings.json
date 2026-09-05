@@ -9,5 +9,14 @@
         "ASIO_STANDALONE",
         "_WIN32_WINNT=0x0601"
     ],
-    "C_Cpp.errorSquiggles": "enabled"
+    "C_Cpp.errorSquiggles": "enabled",
+    "search.exclude": {
+        "**/build": true,
+        "**/node_modules": true,
+        "**/dist": true
+    },
+    "files.watcherExclude": {
+        "**/build/**": true,
+        "**/node_modules/**": true
+    }
 }
