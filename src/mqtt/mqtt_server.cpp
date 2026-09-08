@@ -10,9 +10,11 @@
 namespace apr {
 
 mqtt_session::mqtt_session(asio::ip::tcp::socket socket, registry& reg, const std::string& access_key, close_callback on_close,
-                           connection_guard& conn_guard, size_t max_buffer_bytes, std::chrono::seconds idle_timeout)
+                           connection_guard& conn_guard, size_t max_buffer_bytes, std::chrono::seconds idle_timeout,
+                           publish_callback on_publish)
     : tcp_session_base<mqtt_session, 4096>(std::move(socket), idle_timeout, max_buffer_bytes),
-      registry_(reg), access_key_(access_key), on_close_(std::move(on_close)), conn_guard_(conn_guard) {
+      registry_(reg), access_key_(access_key), on_close_(std::move(on_close)), conn_guard_(conn_guard),
+      on_publish_(std::move(on_publish)) {
 }
 
 mqtt_session::~mqtt_session() {
@@ -286,6 +288,16 @@ void mqtt_session::handle_publish(const uint8_t* data, size_t len) {
         } catch (const std::exception& e) {
             LOG_ERROR(std::string("Failed to parse apr/node/meta payload: ") + e.what());
         }
+    } else if (pub.topic.rfind("apr/", 0) != 0) {
+        // Anything outside the reserved "apr/" namespace (chiefly the
+        // app/{role} and app/{role}/{worker} auxiliary channels, PROTOCOL.md)
+        // isn't interpreted by APR at all - it's just relayed to whoever is
+        // subscribed, same as a plain MQTT broker would. Without this branch
+        // publishes to those topics were silently swallowed: accepted (PUBACK
+        // sent for QoS 1, no error for QoS 0) but never delivered to any
+        // subscriber, since apr/{role} broadcast (below, via registry events)
+        // was the only path that ever called mqtt_server::broadcast().
+        if (on_publish_) on_publish_(pub.topic, pub.payload);
     }
 }
 
@@ -400,7 +412,10 @@ void mqtt_server::do_accept() {
                     },
                     conn_guard_,
                     max_session_buffer_bytes_,
-                    session_idle_timeout_);
+                    session_idle_timeout_,
+                    [this](const std::string& topic, const std::string& payload) {
+                        broadcast(topic, payload);
+                    });
                 {
                     std::unique_lock lock(sessions_mutex_);
                     sessions_.insert(session);

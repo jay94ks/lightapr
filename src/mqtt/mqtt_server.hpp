@@ -19,12 +19,18 @@ inline constexpr size_t k_default_max_session_buffer_bytes = 256 * 1024;
 class mqtt_session : public tcp_session_base<mqtt_session, 4096> {
 public:
     using close_callback = std::function<void(std::shared_ptr<mqtt_session>)>;
+    // Fired for every PUBLISH whose topic isn't the reserved "apr/node/meta"
+    // registration target - lets the owning mqtt_server relay it (app/{role}
+    // and app/{role}/{worker} auxiliary channels, PROTOCOL.md) to matching
+    // subscribers. mqtt_session itself has no notion of sibling sessions.
+    using publish_callback = std::function<void(const std::string& topic, const std::string& payload)>;
     friend class tcp_session_base<mqtt_session, 4096>;
 
     mqtt_session(asio::ip::tcp::socket socket, registry& reg, const std::string& access_key, close_callback on_close,
                  connection_guard& conn_guard,
                  size_t max_buffer_bytes = k_default_max_session_buffer_bytes,
-                 std::chrono::seconds idle_timeout = std::chrono::seconds(k_default_session_idle_timeout_sec));
+                 std::chrono::seconds idle_timeout = std::chrono::seconds(k_default_session_idle_timeout_sec),
+                 publish_callback on_publish = nullptr);
     ~mqtt_session();
 
     void start();
@@ -64,6 +70,7 @@ private:
     std::string access_key_;
     close_callback on_close_;
     connection_guard& conn_guard_;
+    publish_callback on_publish_;
 
     stream_accumulator<std::vector<uint8_t>> rx_acc_;
 
