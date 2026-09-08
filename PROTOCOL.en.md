@@ -68,6 +68,13 @@ TOPIC app/{role}/{worker}
 
 These two topics are not monitored by APR at all.
 They serve as auxiliary channels for asynchronous event delivery between nodes.
+
+A PUBLISH into this namespace is relayed as-is to every other client currently
+subscribed to that topic, the same as a plain MQTT broker would. Relay is
+scoped to the MQTT server instance that received the publish, though - Native
+TCP (1883) and WebSocket (8083) each keep their own independent session set,
+so a message published over one transport is not delivered to subscribers
+connected via the other.
 ```
 
 ## HTTP Endpoints
