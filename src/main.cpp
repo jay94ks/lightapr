@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
         io_ctx.stop();
     });
 
-    apr::registry reg;
+    apr::registry reg(opts.max_node_extra_bytes);
 
     // Timer for periodic grace period expiration sweep
     auto sweep_timer = std::make_shared<asio::steady_timer>(io_ctx, std::chrono::seconds(5));

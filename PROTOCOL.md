@@ -30,17 +30,46 @@ Native TCP 및 WebSocket MQTT 연결 모두 노드 등록이 가능합니다.
         "addr": "해당 노드의 IP 주소", (미기재시 MQTT에 연결된 Peer IP로 자동 대체됨)
         "port": "해당 노드의 포트 번호", (기본값으로, `80`이 강제됨)
         "scheme": "끝점의 프로토콜 스키마" (기본값으로, `http`가 강제됨)
-    } | null
+    } | null,
+
+    "extra": {
+        "작업자 1": { ... 임의의 JSON 오브젝트 ... },
+        ...
+    } (선택 사항 - 아래 apr/node/extra 참고. workers에 없는 키는 무시된다)
 }
 
 (HTTP 엔드포인트를 노출하지 않는 워커 노드의 경우 endpoint 필드를 null로 지정)
 ```
 
 ```
+TOPIC apr/node/extra
+Description:
+
+각 노드가 자신의 특정 worker에 대한 확장 데이터(extra)를,
+apr/node/meta로 최초 등록한 뒤 세션이 유지되는 동안 언제든 갱신하기
+위한 토픽. role/workers/endpoint/status는 건드리지 않고 지정한
+worker 하나의 extra만 교체한다.
+모든 노드는 이 토픽에 대해 발행만 할 수 있고, APR은 수신만 한다.
+
+{
+    "worker": "<이 노드의 workers 배열에 이미 존재하는 이름>",
+    "extra": { ... 임의의 JSON 오브젝트 ... }
+}
+
+- 아직 apr/node/meta로 등록하지 않은 세션의 발행은 무시된다.
+- worker가 해당 노드의 workers 배열에 없으면 무시된다 (새 worker를
+  추가하는 용도가 아니라, 이미 선언한 worker의 데이터를 갱신하는 용도).
+- extra의 직렬화 크기가 max_node_extra_bytes(기본 8KiB, 세션 버퍼
+  크기와는 별개의 독립된 상한)를 넘으면 무시되고 기존 값이 유지된다.
+- 성공하면 apr/{role} 브로드캐스트가 갱신된 extra를 담아 즉시 발행된다.
+```
+
+```
 TOPIC apr/{role}
 Description:
 
-각 노드가 자신에 대한 메타데이터를 발행하면,
+각 노드가 자신에 대한 메타데이터를 발행하거나(apr/node/meta),
+특정 worker의 extra를 갱신하면(apr/node/extra),
 APR은 {role} 자체용 토픽에 메시지를 발행한다.
 각 노드는 이 토픽에 대해 구독만 할 수 있고, APR은 발행만 한다.
 
@@ -59,7 +88,12 @@ APR은 {role} 자체용 토픽에 메시지를 발행한다.
         "scheme": "끝점의 프로토콜 스키마"
     } | null,
 
-    "status": "OK" | "GRACE" | "ERASED"
+    "status": "OK" | "GRACE" | "ERASED",
+
+    "extra": {
+        "작업자 1": { ... },
+        ...
+    } (apr/node/extra로 갱신된 worker만 키로 존재; 아직 아무것도 갱신되지 않았으면 {})
 }
 ```
 
@@ -110,7 +144,8 @@ GET /status
     "mqtt_tx": <MQTT로 송신한 누적 바이트, KB>,
     "http_rx": <HTTP로 수신한 누적 바이트, KB>,
     "http_tx": <HTTP로 송신한 누적 바이트, KB>,
-    "other": <기타(로거 큐 등), KB (라이브 게이지)>
+    "other": <기타(로거 큐 등), KB (라이브 게이지)>,
+    "extra": <전체 노드의 apr/node/extra 데이터가 사용중인 크기, KB (라이브 게이지, registry와 별개)>
   },
 
   "connections": {
@@ -157,7 +192,11 @@ Query Parameters:
             "status": "OK" | "GRACE" | "ERASED",
             "added_at": <이 노드가 등록된 시간, unix 타임스탬프>,
             "active_at": <이 노드가 마지막으로 어떤 동작을 한 시간, unix 타임스탬프>,
-            "expires_in": null (연결이 살아있음) 또는 <잔여 유예 시간>
+            "expires_in": null (연결이 살아있음) 또는 <잔여 유예 시간>,
+            "extra": {
+                "해당 노드가 등록한 작업자 1": { ... },
+                ...
+            } (apr/node/extra로 갱신된 worker만 키로 존재; 없으면 {})
         }
     ]
 }
@@ -185,7 +224,11 @@ GET /registry/{id}
 
     "added_at": <이 노드가 등록된 시간, unix 타임스탬프>,
     "active_at": <이 노드가 마지막으로 어떤 동작을 한 시간, unix 타임스탬프>,
-    "expires_in": null (연결이 살아있음) 또는 <잔여 유예 시간>
+    "expires_in": null (연결이 살아있음) 또는 <잔여 유예 시간>,
+    "extra": {
+        "해당 노드가 등록한 작업자 1": { ... },
+        ...
+    } (apr/node/extra로 갱신된 worker만 키로 존재; 없으면 {})
 }
 ```
 
@@ -202,7 +245,9 @@ Query Parameters:
         "addr": "해당 노드의 IP 주소",
         "port": "해당 노드의 포트 번호",
         "scheme": "끝점의 프로토콜 스키마"
-    } | null
+    } | null,
+
+    "extra": { ... } (worker를 지정했고 해당 worker가 extra를 갖고 있을 때만 존재; role만 지정했거나 extra가 없으면 필드 자체가 생략됨)
 }
 ```
 

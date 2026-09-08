@@ -73,6 +73,7 @@ LightAPR 서버 데몬은 Docker Hub 컨테이너 이미지로 제공되며, `1.
   - `CONFIG_FILE`: JSON 설정 파일 경로 (선택 사항, 아래 참고). 파일에 명시된 값이 CLI 기본값을 대체하며, 명시적으로 지정한 다른 CLI 인자/환경 변수가 있으면 그 값이 최종적으로 우선합니다.
   - `IDLE_TIMEOUT`: 연결이 유휴 상태(완료된 읽기가 없음)로 머무를 수 있는 최대 시간(초); 초과 시 서버가 연결을 종료 (기본값: `90`)
   - `MAX_BUFFER_BYTES`: 세션 하나가 진행 중인 요청/프레임을 위해 버퍼링할 수 있는 최대 바이트 수; 초과 시 연결 종료 (기본값: `262144`, 256KiB)
+  - `MAX_NODE_EXTRA_BYTES`: `apr/node/extra`(및 `apr/node/meta`의 선택적 `extra`)로 갱신 가능한 worker 1개당 확장 데이터의 최대 직렬화 크기; 초과 시 해당 갱신만 무시되고 기존 값 유지. `MAX_BUFFER_BYTES`와 무관한 별도 상한 (기본값: `8192`, 8KiB)
   - `MAX_CONNECTIONS`: MQTT(TCP+WS)와 HTTP를 합산한 프로세스 전역 동시 연결 상한; `0`이면 무제한 (기본값: `10000`)
   - `MAX_CONNECTIONS_PER_IP`: 모든 리스너를 합산해 단일 소스 IP가 가질 수 있는 최대 동시 연결 수; `0`이면 무제한 (기본값: `100`)
   - `MAX_NEW_CONNECTIONS_PER_IP`: 단일 소스 IP가 `CONNECTION_RATE_WINDOW_SEC` 시간 내에 새로 맺을 수 있는 최대 연결 수; `0`이면 무제한 (기본값: `20`)
@@ -92,7 +93,7 @@ LightAPR은 연결 폭주나 악의적인 클라이언트에도 서버 자원이
 
 ### 모니터·테스터 웹 앱
 두 운영자용 웹 앱은 `lightapr` 바이너리에 빌드 타임에 직접 컴파일되어 임베드되며([`cmake/EmbedFile.cmake`](https://github.com/jay94ks/lightapr/blob/main/cmake/EmbedFile.cmake)가 바이트 배열로 변환 — 별도 배포 파일 불필요), 디스커버리 API의 일부가 아닌 디버그/운영 도구이므로 기본값은 꺼짐입니다:
-- **`--monitor`** → `http://<host>:<http_port>/monitor` (및 `/`): 실시간 대시보드 — 노드 레지스트리, 7분류 메모리 내역(`registry`/`mqtt_rx`/`mqtt_tx`/`http_rx`/`http_tx`/`other` + OS RSS), 실시간 연결 수, 디코딩된 WS MQTT 토폴로지 이벤트 피드.
+- **`--monitor`** → `http://<host>:<http_port>/monitor` (및 `/`): 실시간 대시보드 — 노드 레지스트리, 8분류 메모리 내역(`registry`/`mqtt_rx`/`mqtt_tx`/`http_rx`/`http_tx`/`other`/`extra` + OS RSS), 실시간 연결 수, 디코딩된 WS MQTT 토폴로지 이벤트 피드.
 - **`--tester`** → `http://<host>:<http_port>/tester`: 모든 HTTP 엔드포인트·MQTT 동작(연결/구독/발행)을 위한 인터랙티브 플레이그라운드, 노드 등록 시뮬레이터, 위에서 언급한 버스트 요청 도구.
 
 두 앱 모두 플래그(Docker에서는 `MONITOR=true`/`TESTER=true`)만 켜면 되며, HTML이 `monitor/html/index.html`과 `monitor/tester/index.html`로부터 컴파일 타임에 임베드되므로 별도 빌드 단계가 필요 없습니다.

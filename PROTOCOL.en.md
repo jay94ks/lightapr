@@ -30,17 +30,48 @@ Both Native TCP and WebSocket MQTT connections support node registration.
         "addr": "Node IP address", (If omitted, automatically substituted with MQTT peer IP)
         "port": "Node port number", (Default: forced to `80`)
         "scheme": "Endpoint protocol scheme" (Default: forced to `http`)
-    } | null
+    } | null,
+
+    "extra": {
+        "worker_1": { ... arbitrary JSON object ... },
+        ...
+    } (optional - see apr/node/extra below. Keys not present in workers are ignored)
 }
 
 (Specify endpoint as null for worker nodes that do not expose an HTTP endpoint)
 ```
 
 ```
+TOPIC apr/node/extra
+Description:
+
+Channel for a node to update the `extra` announcement data for one of its
+workers at any point after registering via apr/node/meta, for as long as
+the session stays connected. Only that worker's extra is replaced -
+role/workers/endpoint/status are left untouched.
+All nodes publish only to this topic, and APR receives only.
+
+{
+    "worker": "<must already be present in this node's workers array>",
+    "extra": { ... arbitrary JSON object ... }
+}
+
+- Ignored if the session hasn't registered via apr/node/meta yet.
+- Ignored if `worker` isn't in that node's workers array (this updates an
+  already-declared worker's data, it does not add a new worker).
+- Ignored, keeping the previous value, if the serialized `extra` exceeds
+  max_node_extra_bytes (default 8 KiB - a limit independent of the session
+  buffer size).
+- On success, the updated extra is published immediately via the apr/{role}
+  broadcast below.
+```
+
+```
 TOPIC apr/{role}
 Description:
 
-When a node publishes its metadata, APR publishes a message to the {role} topic.
+When a node publishes its metadata (apr/node/meta) or updates a worker's
+extra data (apr/node/extra), APR publishes a message to the {role} topic.
 Each node subscribes to this topic, and APR publishes only.
 
 {
@@ -58,7 +89,12 @@ Each node subscribes to this topic, and APR publishes only.
         "scheme": "Endpoint protocol scheme"
     } | null,
 
-    "status": "OK" | "GRACE" | "ERASED"
+    "status": "OK" | "GRACE" | "ERASED",
+
+    "extra": {
+        "worker_1": { ... },
+        ...
+    } (only keys updated via apr/node/extra are present; {} if none yet)
 }
 ```
 
@@ -109,7 +145,8 @@ GET /status
     "mqtt_tx": <Cumulative MQTT bytes sent, KB>,
     "http_rx": <Cumulative HTTP bytes received, KB>,
     "http_tx": <Cumulative HTTP bytes sent, KB>,
-    "other": <Misc (logger queue, etc.), KB (live gauge)>
+    "other": <Misc (logger queue, etc.), KB (live gauge)>,
+    "extra": <apr/node/extra data footprint across all nodes, KB (live gauge, separate from registry)>
   },
 
   "connections": {
@@ -156,7 +193,11 @@ Query Parameters:
             "status": "OK" | "GRACE" | "ERASED",
             "added_at": <Unix timestamp when node registered>,
             "active_at": <Unix timestamp of node's last activity>,
-            "expires_in": null (connection alive) or <Remaining grace time in seconds>
+            "expires_in": null (connection alive) or <Remaining grace time in seconds>,
+            "extra": {
+                "Worker 1 registered by node": { ... },
+                ...
+            } (only workers updated via apr/node/extra are present; {} if none)
         }
     ]
 }
@@ -184,7 +225,11 @@ GET /registry/{id}
 
     "added_at": <Unix timestamp when node registered>,
     "active_at": <Unix timestamp of node's last activity>,
-    "expires_in": null (connection alive) or <Remaining grace time in seconds>
+    "expires_in": null (connection alive) or <Remaining grace time in seconds>,
+    "extra": {
+        "Worker 1 registered by node": { ... },
+        ...
+    } (only workers updated via apr/node/extra are present; {} if none)
 }
 ```
 
@@ -201,7 +246,9 @@ Query Parameters:
         "addr": "Node IP address",
         "port": "Node port number",
         "scheme": "Endpoint protocol scheme"
-    } | null
+    } | null,
+
+    "extra": { ... } (present only when worker was specified and that worker has extra data; omitted entirely for a role-only resolve or when there's no extra data)
 }
 ```
 

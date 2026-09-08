@@ -40,6 +40,10 @@ void memory_tracker::add_other_bytes(int64_t bytes) {
     other_bytes_ += bytes;
 }
 
+void memory_tracker::add_extra_bytes(int64_t bytes) {
+    extra_bytes_ += bytes;
+}
+
 uint64_t memory_tracker::get_process_rss_kb() const {
 #if defined(_WIN32)
     PROCESS_MEMORY_COUNTERS pmc;
@@ -67,6 +71,7 @@ memory_stats memory_tracker::get_stats() const {
     stats.http_rx_kb = static_cast<uint64_t>(std::max<int64_t>(0, http_rx_bytes_.load() / 1024));
     stats.http_tx_kb = static_cast<uint64_t>(std::max<int64_t>(0, http_tx_bytes_.load() / 1024));
     stats.other_kb = static_cast<uint64_t>(std::max<int64_t>(0, other_bytes_.load() / 1024));
+    stats.extra_kb = static_cast<uint64_t>(std::max<int64_t>(0, extra_bytes_.load() / 1024));
     return stats;
 }
 

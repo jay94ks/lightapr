@@ -8,6 +8,7 @@ add_executable(unit_tests
     unit/test_http_server.cpp
     unit/test_connection_guard.cpp
     unit/test_memory_tracker.cpp
+    unit/test_mqtt_broadcast.cpp
     ${CORE_SOURCES}
     ${MQTT_SOURCES}
     ${HTTP_SOURCES}

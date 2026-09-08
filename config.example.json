@@ -10,6 +10,7 @@
     "log_level": "info",
     "session_idle_timeout_sec": 90,
     "max_session_buffer_bytes": 262144,
+    "max_node_extra_bytes": 8192,
     "max_connections": 10000,
     "max_connections_per_ip": 100,
     "max_new_connections_per_ip": 20,

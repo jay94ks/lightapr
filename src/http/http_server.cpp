@@ -226,6 +226,14 @@ http_response http_session::route_request(const http_request& req) {
                 {"id", n.id},
                 {"endpoint", n.endpoint.has_value() ? nlohmann::json(n.endpoint.value()) : nullptr}
             };
+            // Only the resolved worker's own extra data is relevant here (a
+            // node may host several worker types with separate extra
+            // announcements) - omitted entirely when the caller resolved by
+            // role only (no specific worker) or that worker never announced
+            // any extra data.
+            if (!worker.empty() && n.extra.contains(worker)) {
+                j["extra"] = n.extra[worker];
+            }
             res.body = j.dump();
         } else {
             res.status_code = 404;

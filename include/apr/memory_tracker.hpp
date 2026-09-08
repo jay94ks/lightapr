@@ -19,6 +19,10 @@ struct memory_stats {
     uint64_t http_rx_kb{0};  // cumulative: HTTP bytes received
     uint64_t http_tx_kb{0};  // cumulative: HTTP bytes sent
     uint64_t other_kb{0};    // live: misc tracked allocations (e.g. logger queue)
+    // live: per-worker `extra` announcement data held by the registry
+    // (apr/node/extra). Deliberately separate from registry_kb - it's
+    // operator-supplied and unbounded in shape, unlike role/id/workers.
+    uint64_t extra_kb{0};
 };
 
 inline void to_json(nlohmann::json& j, const memory_stats& stats) {
@@ -29,7 +33,8 @@ inline void to_json(nlohmann::json& j, const memory_stats& stats) {
         {"mqtt_tx", stats.mqtt_tx_kb},
         {"http_rx", stats.http_rx_kb},
         {"http_tx", stats.http_tx_kb},
-        {"other", stats.other_kb}
+        {"other", stats.other_kb},
+        {"extra", stats.extra_kb}
     };
 }
 
@@ -43,6 +48,7 @@ public:
     void add_http_rx_bytes(int64_t bytes);
     void add_http_tx_bytes(int64_t bytes);
     void add_other_bytes(int64_t bytes);
+    void add_extra_bytes(int64_t bytes);
 
     memory_stats get_stats() const;
 
@@ -53,6 +59,7 @@ private:
     std::atomic<int64_t> http_rx_bytes_{0};
     std::atomic<int64_t> http_tx_bytes_{0};
     std::atomic<int64_t> other_bytes_{0};
+    std::atomic<int64_t> extra_bytes_{0};
 
     uint64_t get_process_rss_kb() const;
 };

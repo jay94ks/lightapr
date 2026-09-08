@@ -120,6 +120,98 @@ void test_registry_multiple_event_observers() {
     std::cout << "[PASS] test_registry_multiple_event_observers" << std::endl;
 }
 
+void test_update_node_extra_valid_worker() {
+    apr::registry reg;
+    apr::endpoint_info ep{"127.0.0.1", 8080, "http"};
+
+    auto node = reg.register_or_update_node("worker", {"task_a", "task_b"}, ep, "127.0.0.1");
+
+    bool ok = reg.update_node_extra(node.id, "task_a", nlohmann::json{{"load", 0.5}});
+    assert(ok);
+
+    auto fetched = reg.get_node(node.id);
+    assert(fetched.has_value());
+    assert(fetched->extra.contains("task_a"));
+    assert(fetched->extra["task_a"]["load"] == 0.5);
+    // Untouched worker must not gain an entry.
+    assert(!fetched->extra.contains("task_b"));
+
+    std::cout << "[PASS] test_update_node_extra_valid_worker" << std::endl;
+}
+
+void test_update_node_extra_rejects_unknown_worker_and_node() {
+    apr::registry reg;
+    apr::endpoint_info ep{"127.0.0.1", 8080, "http"};
+
+    auto node = reg.register_or_update_node("worker", {"task_a"}, ep, "127.0.0.1");
+
+    // Not in this node's workers list.
+    bool ok = reg.update_node_extra(node.id, "task_z", nlohmann::json{{"x", 1}});
+    assert(!ok);
+    auto fetched = reg.get_node(node.id);
+    assert(fetched->extra.empty());
+
+    // Unknown node id entirely.
+    ok = reg.update_node_extra("no-such-node", "task_a", nlohmann::json{{"x", 1}});
+    assert(!ok);
+
+    std::cout << "[PASS] test_update_node_extra_rejects_unknown_worker_and_node" << std::endl;
+}
+
+void test_update_node_extra_rejects_oversized_payload_keeps_previous() {
+    apr::registry reg(16); // 16-byte cap, deliberately tiny
+    apr::endpoint_info ep{"127.0.0.1", 8080, "http"};
+
+    auto node = reg.register_or_update_node("worker", {"task_a"}, ep, "127.0.0.1");
+
+    bool ok = reg.update_node_extra(node.id, "task_a", nlohmann::json{{"v", 1}});
+    assert(ok); // small enough
+
+    auto before = reg.get_node(node.id)->extra["task_a"];
+
+    ok = reg.update_node_extra(node.id, "task_a",
+                                nlohmann::json{{"a_much_longer_key_that_blows_the_cap", "yes"}});
+    assert(!ok);
+
+    auto after = reg.get_node(node.id)->extra["task_a"];
+    assert(before == after); // previous value untouched
+
+    std::cout << "[PASS] test_update_node_extra_rejects_oversized_payload_keeps_previous" << std::endl;
+}
+
+void test_register_or_update_node_prunes_stale_extra_on_worker_removal() {
+    apr::registry reg;
+    apr::endpoint_info ep{"127.0.0.1", 8080, "http"};
+
+    auto node = reg.register_or_update_node("worker", {"task_a", "task_b"}, ep, "127.0.0.1");
+    reg.update_node_extra(node.id, "task_a", nlohmann::json{{"x", 1}});
+    reg.update_node_extra(node.id, "task_b", nlohmann::json{{"y", 2}});
+
+    // Re-register without task_b - its extra entry should be pruned, not left dangling.
+    reg.register_or_update_node("worker", {"task_a"}, ep, "127.0.0.1", node.id);
+
+    auto fetched = reg.get_node(node.id);
+    assert(fetched->extra.contains("task_a"));
+    assert(!fetched->extra.contains("task_b"));
+
+    std::cout << "[PASS] test_register_or_update_node_prunes_stale_extra_on_worker_removal" << std::endl;
+}
+
+void test_register_or_update_node_accepts_initial_extra() {
+    apr::registry reg;
+    apr::endpoint_info ep{"127.0.0.1", 8080, "http"};
+
+    nlohmann::json initial_extra = {{"task_a", {{"ready", true}}}, {"unknown_worker", {{"ignored", true}}}};
+    auto node = reg.register_or_update_node("worker", {"task_a"}, ep, "127.0.0.1", "", initial_extra);
+
+    assert(node.extra.contains("task_a"));
+    assert(node.extra["task_a"]["ready"] == true);
+    // Keys not in the declared workers list must be dropped, not silently accepted.
+    assert(!node.extra.contains("unknown_worker"));
+
+    std::cout << "[PASS] test_register_or_update_node_accepts_initial_extra" << std::endl;
+}
+
 void run_mqtt_packet_tests();
 void run_websocket_tests();
 void run_cli_options_tests();
@@ -128,6 +220,7 @@ void run_registry_concurrency_tests();
 void run_http_server_tests();
 void run_connection_guard_tests();
 void run_memory_tracker_tests();
+void run_mqtt_broadcast_tests();
 
 int main() {
     test_register_and_resolve();
@@ -135,6 +228,11 @@ int main() {
     test_query_pagination();
     test_null_endpoint();
     test_registry_multiple_event_observers();
+    test_update_node_extra_valid_worker();
+    test_update_node_extra_rejects_unknown_worker_and_node();
+    test_update_node_extra_rejects_oversized_payload_keeps_previous();
+    test_register_or_update_node_prunes_stale_extra_on_worker_removal();
+    test_register_or_update_node_accepts_initial_extra();
     run_mqtt_packet_tests();
     run_websocket_tests();
     run_cli_options_tests();
@@ -143,6 +241,7 @@ int main() {
     run_http_server_tests();
     run_connection_guard_tests();
     run_memory_tracker_tests();
+    run_mqtt_broadcast_tests();
     std::cout << "All unit tests passed successfully!" << std::endl;
     return 0;
 }

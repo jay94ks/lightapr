@@ -23,7 +23,12 @@ struct registry_stats {
 
 class registry {
 public:
-    registry();
+    // max_node_extra_bytes bounds the serialized size of a single worker's
+    // `extra` payload (apr/node/extra and the optional `extra` on
+    // apr/node/meta) - independent of any MQTT session/transport buffer
+    // limit, since this is data the registry holds long-term, not a
+    // transient message.
+    explicit registry(size_t max_node_extra_bytes = 8192);
     ~registry();
 
     // Subscribe to node topology broadcast events. Returns a token usable with
@@ -37,11 +42,22 @@ public:
                                       const std::vector<std::string>& workers,
                                       const std::optional<endpoint_info>& ep,
                                       const std::string& peer_ip,
-                                      const std::string& existing_id = "");
+                                      const std::string& existing_id = "",
+                                      const nlohmann::json& extra = nlohmann::json::object());
 
     bool mark_node_grace(const std::string& node_id);
     bool restore_node_active(const std::string& node_id);
     bool remove_node_permanently(const std::string& node_id);
+
+    // Replaces the `extra` announcement for a single worker of an already-
+    // registered node. `worker` must already be present in that node's
+    // `workers` list (set at registration) - update_node_extra never adds a
+    // new worker, only announces data for one that exists. Rejected (returns
+    // false, nothing changed) if the node/worker is unknown or the
+    // serialized `extra` exceeds max_node_extra_bytes. On success, fires the
+    // same node_event_callback as every other mutation, so it rides the
+    // existing apr/{role} broadcast to every apr/+ subscriber.
+    bool update_node_extra(const std::string& node_id, const std::string& worker, const nlohmann::json& extra);
 
     std::optional<node_info> get_node(const std::string& node_id) const;
 
@@ -61,6 +77,17 @@ public:
 
 private:
     std::string generate_node_id();
+    // Sets node.extra[worker] = value if worker is in node.workers and the
+    // serialized size is within max_node_extra_bytes_, tracking the byte
+    // delta via memory_tracker::add_extra_bytes(). Returns false (no change)
+    // otherwise. Caller must hold mutex_ for writing.
+    bool try_set_extra_locked(node_info& node, const std::string& worker, const nlohmann::json& value);
+    // Drops any node.extra entries whose key is no longer in node.workers
+    // (e.g. a re-registration that stopped listing that worker), releasing
+    // their tracked bytes. Caller must hold mutex_ for writing.
+    void prune_stale_extra_locked(node_info& node);
+
+    size_t max_node_extra_bytes_;
 
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, node_info> nodes_; // node_id -> node_info

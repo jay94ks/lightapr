@@ -73,6 +73,12 @@ struct node_info {
     std::int64_t added_at{0};
     std::int64_t active_at{0};
     std::optional<std::int64_t> expires_in;
+    // Per-worker announcement data, keyed by worker name (must be one of
+    // `workers` - see registry::update_node_extra). Not a whole-node blob:
+    // a node hosting several worker types announces each one separately, so
+    // e.g. a load-balancing consumer of a specific worker only ever sees
+    // that worker's own extra payload, not its siblings'.
+    nlohmann::json extra{nlohmann::json::object()};
 };
 
 inline void to_json(nlohmann::json& j, const node_info& node) {
@@ -83,7 +89,8 @@ inline void to_json(nlohmann::json& j, const node_info& node) {
         {"endpoint", node.endpoint.has_value() ? nlohmann::json(node.endpoint.value()) : nullptr},
         {"status", to_string(node.status)},
         {"added_at", node.added_at},
-        {"active_at", node.active_at}
+        {"active_at", node.active_at},
+        {"extra", node.extra}
     };
     if (node.expires_in.has_value()) {
         j["expires_in"] = node.expires_in.value();
@@ -110,6 +117,11 @@ inline void from_json(const nlohmann::json& j, node_info& node) {
         node.expires_in = j["expires_in"].get<std::int64_t>();
     } else {
         node.expires_in = std::nullopt;
+    }
+    if (j.contains("extra") && j["extra"].is_object()) {
+        node.extra = j["extra"];
+    } else {
+        node.extra = nlohmann::json::object();
     }
 }
 

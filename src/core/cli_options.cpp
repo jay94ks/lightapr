@@ -54,6 +54,9 @@ bool cli_options::load_from_file(const std::string& path, cli_options& opts) {
     if (j.contains("max_session_buffer_bytes") && j["max_session_buffer_bytes"].is_number_unsigned()) {
         opts.max_session_buffer_bytes = j["max_session_buffer_bytes"].get<size_t>();
     }
+    if (j.contains("max_node_extra_bytes") && j["max_node_extra_bytes"].is_number_unsigned()) {
+        opts.max_node_extra_bytes = j["max_node_extra_bytes"].get<size_t>();
+    }
     if (j.contains("max_connections") && j["max_connections"].is_number_unsigned()) {
         opts.max_connections = j["max_connections"].get<size_t>();
     }
@@ -96,6 +99,7 @@ struct cli_overrides {
     bool log_level{false};
     bool session_idle_timeout_sec{false};
     bool max_session_buffer_bytes{false};
+    bool max_node_extra_bytes{false};
     bool max_connections{false};
     bool max_connections_per_ip{false};
     bool max_new_connections_per_ip{false};
@@ -117,6 +121,7 @@ void apply_overrides(const cli_overrides& ov, cli_options& opts) {
     if (ov.log_level) opts.log_level = ov.values.log_level;
     if (ov.session_idle_timeout_sec) opts.session_idle_timeout_sec = ov.values.session_idle_timeout_sec;
     if (ov.max_session_buffer_bytes) opts.max_session_buffer_bytes = ov.values.max_session_buffer_bytes;
+    if (ov.max_node_extra_bytes) opts.max_node_extra_bytes = ov.values.max_node_extra_bytes;
     if (ov.max_connections) opts.max_connections = ov.values.max_connections;
     if (ov.max_connections_per_ip) opts.max_connections_per_ip = ov.values.max_connections_per_ip;
     if (ov.max_new_connections_per_ip) opts.max_new_connections_per_ip = ov.values.max_new_connections_per_ip;
@@ -171,6 +176,9 @@ cli_options cli_options::parse(int argc, char* argv[]) {
         } else if (arg == "--max-buffer-bytes" && i + 1 < argc) {
             ov.values.max_session_buffer_bytes = static_cast<size_t>(std::stoul(argv[++i]));
             ov.max_session_buffer_bytes = true;
+        } else if (arg == "--max-node-extra-bytes" && i + 1 < argc) {
+            ov.values.max_node_extra_bytes = static_cast<size_t>(std::stoul(argv[++i]));
+            ov.max_node_extra_bytes = true;
         } else if (arg == "--max-connections" && i + 1 < argc) {
             ov.values.max_connections = static_cast<size_t>(std::stoul(argv[++i]));
             ov.max_connections = true;

@@ -103,6 +103,10 @@ public:
 
     void broadcast(const std::string& topic, const std::string& payload);
 
+    // Port actually bound (useful when constructed with port 0 to let the OS
+    // pick one, e.g. in tests).
+    uint16_t local_port() const { return acceptor_.local_endpoint().port(); }
+
 private:
     void do_accept();
 

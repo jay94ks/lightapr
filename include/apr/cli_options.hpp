@@ -18,6 +18,11 @@ struct cli_options {
     std::string log_level{"info"}; // debug|info|warn|error
     size_t session_idle_timeout_sec{90};
     size_t max_session_buffer_bytes{262144}; // 256 KiB
+    // Cap on a single worker's `extra` announcement (apr/node/extra and the
+    // optional `extra` on apr/node/meta). Independent of
+    // max_session_buffer_bytes: this bounds data the registry holds
+    // long-term per node, not a transient MQTT message.
+    size_t max_node_extra_bytes{8192}; // 8 KiB
 
     // DDoS / high-load hardening. All 0 = unlimited (not recommended in
     // production). Connection limits apply across MQTT (TCP+WS) and HTTP

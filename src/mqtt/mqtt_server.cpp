@@ -282,11 +282,37 @@ void mqtt_session::handle_publish(const uint8_t* data, size_t len) {
             if (j.contains("endpoint") && !j["endpoint"].is_null()) {
                 ep = j["endpoint"].get<endpoint_info>();
             }
+            nlohmann::json extra = nlohmann::json::object();
+            if (j.contains("extra") && j["extra"].is_object()) {
+                extra = j["extra"];
+            }
 
-            auto node = registry_.register_or_update_node(role, workers, ep, peer_ip_, node_id_);
+            auto node = registry_.register_or_update_node(role, workers, ep, peer_ip_, node_id_, extra);
             node_id_ = node.id;
         } catch (const std::exception& e) {
             LOG_ERROR(std::string("Failed to parse apr/node/meta payload: ") + e.what());
+        }
+    } else if (pub.topic == "apr/node/extra") {
+        // Runtime announcement channel for a single worker's `extra` data -
+        // deliberately separate from apr/node/meta so a node can update it
+        // at any point in its session without re-declaring role/workers/
+        // endpoint. Only valid on a session that has already registered via
+        // apr/node/meta (node_id_ set) and only for a worker that session's
+        // node already listed there.
+        if (node_id_.empty()) {
+            LOG_WARN("Rejected apr/node/extra publish: session has not registered via apr/node/meta");
+        } else {
+            try {
+                auto j = nlohmann::json::parse(pub.payload);
+                std::string worker = j.value("worker", std::string());
+                if (worker.empty() || !j.contains("extra") || !j["extra"].is_object()) {
+                    LOG_WARN("Malformed apr/node/extra payload from node " + node_id_);
+                } else {
+                    registry_.update_node_extra(node_id_, worker, j["extra"]);
+                }
+            } catch (const std::exception& e) {
+                LOG_ERROR(std::string("Failed to parse apr/node/extra payload: ") + e.what());
+            }
         }
     } else if (pub.topic.rfind("apr/", 0) != 0) {
         // Anything outside the reserved "apr/" namespace (chiefly the

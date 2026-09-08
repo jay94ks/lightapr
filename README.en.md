@@ -73,6 +73,7 @@ The LightAPR server daemon is published as a Docker Hub container image availabl
   - `CONFIG_FILE`: Path to a JSON config file (optional; see below). Its values replace the CLI defaults, and are themselves overridden by any other CLI flag/env var set explicitly.
   - `IDLE_TIMEOUT`: Seconds a connection may sit idle (no completed read) before the server closes it (Default: `90`)
   - `MAX_BUFFER_BYTES`: Max bytes a single session may buffer before an in-progress request/frame is considered complete; exceeding it closes the connection (Default: `262144`, 256 KiB)
+  - `MAX_NODE_EXTRA_BYTES`: Max serialized size of one worker's `extra` announcement, settable via `apr/node/extra` (and the optional `extra` on `apr/node/meta`); an oversized update is ignored, keeping the previous value. A cap independent of `MAX_BUFFER_BYTES` (Default: `8192`, 8 KiB)
   - `MAX_CONNECTIONS`: Process-wide cap on simultaneously open connections across MQTT (TCP+WS) and HTTP combined; `0` = unlimited (Default: `10000`)
   - `MAX_CONNECTIONS_PER_IP`: Max simultaneous connections from a single source IP, across all listeners; `0` = unlimited (Default: `100`)
   - `MAX_NEW_CONNECTIONS_PER_IP`: Max new connections a single source IP may open within `CONNECTION_RATE_WINDOW_SEC`; `0` = unlimited (Default: `20`)
@@ -92,7 +93,7 @@ You can watch these limits in action live: enable `--tester`, open `/tester`, an
 
 ### Monitor & Tester Web Apps
 Two operator-facing web apps ship compiled directly into the `lightapr` binary at build time ([`cmake/EmbedFile.cmake`](https://github.com/jay94ks/lightapr/blob/main/cmake/EmbedFile.cmake) embeds them as byte arrays - no separate file to deploy) and are off by default, since they're debug/operator tools rather than part of the discovery API:
-- **`--monitor`** → `http://<host>:<http_port>/monitor` (and `/`): live dashboard - node registry, the 7-way memory breakdown (`registry`/`mqtt_rx`/`mqtt_tx`/`http_rx`/`http_tx`/`other`, plus OS RSS), live connection count, and a decoded WebSocket-MQTT topology event feed.
+- **`--monitor`** → `http://<host>:<http_port>/monitor` (and `/`): live dashboard - node registry, the 8-way memory breakdown (`registry`/`mqtt_rx`/`mqtt_tx`/`http_rx`/`http_tx`/`other`/`extra`, plus OS RSS), live connection count, and a decoded WebSocket-MQTT topology event feed.
 - **`--tester`** → `http://<host>:<http_port>/tester`: interactive playground for every HTTP endpoint and MQTT operation (connect/subscribe/publish), a node-registration simulator, and the burst-request tool mentioned above.
 
 Both require only the flag (or `MONITOR=true` / `TESTER=true` in Docker) - no extra build step, since the HTML is embedded at compile time from `monitor/html/index.html` and `monitor/tester/index.html`.

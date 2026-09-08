@@ -13,7 +13,7 @@ static int64_t get_current_unix_timestamp() {
     ).count();
 }
 
-registry::registry() = default;
+registry::registry(size_t max_node_extra_bytes) : max_node_extra_bytes_(max_node_extra_bytes) {}
 registry::~registry() = default;
 
 uint64_t registry::add_event_callback(node_event_callback cb) {
@@ -43,6 +43,39 @@ std::vector<node_event_callback> snapshot_callbacks(
 }
 } // namespace
 
+bool registry::try_set_extra_locked(node_info& node, const std::string& worker, const nlohmann::json& value) {
+    if (std::find(node.workers.begin(), node.workers.end(), worker) == node.workers.end()) {
+        LOG_WARN("Rejected extra update for node " + node.id + ": unknown worker '" + worker + "'");
+        return false;
+    }
+
+    std::string serialized = value.dump();
+    if (serialized.size() > max_node_extra_bytes_) {
+        LOG_WARN("Rejected extra update for node " + node.id + " worker '" + worker + "': " +
+                 std::to_string(serialized.size()) + " bytes exceeds max_node_extra_bytes (" +
+                 std::to_string(max_node_extra_bytes_) + ")");
+        return false;
+    }
+
+    int64_t old_size = node.extra.contains(worker) ? static_cast<int64_t>(node.extra[worker].dump().size()) : 0;
+    node.extra[worker] = value;
+    memory_tracker::instance().add_extra_bytes(static_cast<int64_t>(serialized.size()) - old_size);
+    return true;
+}
+
+void registry::prune_stale_extra_locked(node_info& node) {
+    std::vector<std::string> stale_keys;
+    for (auto it = node.extra.begin(); it != node.extra.end(); ++it) {
+        if (std::find(node.workers.begin(), node.workers.end(), it.key()) == node.workers.end()) {
+            stale_keys.push_back(it.key());
+        }
+    }
+    for (const auto& key : stale_keys) {
+        memory_tracker::instance().add_extra_bytes(-static_cast<int64_t>(node.extra[key].dump().size()));
+        node.extra.erase(key);
+    }
+}
+
 std::string registry::generate_node_id() {
     uint64_t counter = id_counter_++;
     auto now = get_current_unix_timestamp();
@@ -55,7 +88,8 @@ node_info registry::register_or_update_node(const std::string& role,
                                               const std::vector<std::string>& workers,
                                               const std::optional<endpoint_info>& ep,
                                               const std::string& peer_ip,
-                                              const std::string& existing_id) {
+                                              const std::string& existing_id,
+                                              const nlohmann::json& extra) {
     std::unique_lock lock(mutex_);
     int64_t now = get_current_unix_timestamp();
 
@@ -77,6 +111,9 @@ node_info registry::register_or_update_node(const std::string& role,
         it->second.status = node_status::ok;
         it->second.active_at = now;
         it->second.expires_in.reset();
+        // A re-registration may have dropped a worker this node used to
+        // list - its stale extra announcement (if any) shouldn't linger.
+        prune_stale_extra_locked(it->second);
     } else {
         node_info node;
         node.id = node_id;
@@ -91,6 +128,12 @@ node_info registry::register_or_update_node(const std::string& role,
 
         // Estimate memory usage for metadata tracking
         memory_tracker::instance().add_registry_bytes(sizeof(node_info) + role.size() + node_id.size());
+    }
+
+    if (extra.is_object()) {
+        for (auto ex_it = extra.begin(); ex_it != extra.end(); ++ex_it) {
+            try_set_extra_locked(it->second, ex_it.key(), ex_it.value());
+        }
     }
 
     // Snapshot for use after the lock is released (returned to the caller and
@@ -152,6 +195,28 @@ bool registry::restore_node_active(const std::string& node_id) {
     return true;
 }
 
+bool registry::update_node_extra(const std::string& node_id, const std::string& worker, const nlohmann::json& extra) {
+    std::unique_lock lock(mutex_);
+    auto it = nodes_.find(node_id);
+    if (it == nodes_.end()) return false;
+
+    if (!try_set_extra_locked(it->second, worker, extra)) {
+        return false;
+    }
+    it->second.active_at = get_current_unix_timestamp();
+
+    node_info updated_node = it->second;
+    std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
+    lock.unlock();
+
+    LOG_INFO("Updated extra data for node " + node_id + " (worker: " + worker + ")");
+
+    for (const auto& cb : cbs) {
+        if (cb) cb(updated_node);
+    }
+    return true;
+}
+
 bool registry::remove_node_permanently(const std::string& node_id) {
     std::unique_lock lock(mutex_);
     auto it = nodes_.find(node_id);
@@ -163,6 +228,9 @@ bool registry::remove_node_permanently(const std::string& node_id) {
 
     nodes_.erase(it);
     memory_tracker::instance().add_registry_bytes(-static_cast<int64_t>(sizeof(node_info) + erased_node.role.size() + erased_node.id.size()));
+    for (auto ex_it = erased_node.extra.begin(); ex_it != erased_node.extra.end(); ++ex_it) {
+        memory_tracker::instance().add_extra_bytes(-static_cast<int64_t>(ex_it.value().dump().size()));
+    }
 
     std::vector<node_event_callback> cbs = snapshot_callbacks(event_cbs_);
     lock.unlock();
