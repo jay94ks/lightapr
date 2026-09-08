@@ -49,6 +49,11 @@ namespace Apr.Sdk
 
         [JsonPropertyName("expires_in")]
         public long? ExpiresIn { get; set; }
+
+        // Per-worker announcement data (apr/node/extra), keyed by worker
+        // name. Only workers that have published extra data appear as keys.
+        [JsonPropertyName("extra")]
+        public Dictionary<string, JsonElement>? Extra { get; set; }
     }
 
     public class AprClientOptions
@@ -221,6 +226,24 @@ namespace Apr.Sdk
             if (_mqttClient != null && _mqttClient.IsConnected)
             {
                 _ = _mqttClient.SubscribeAsync(topic);
+            }
+        }
+
+        // Announces (or replaces) `worker`'s extra data via apr/node/extra -
+        // usable at any point after StartAsync(), any number of times,
+        // without re-declaring role/workers/endpoint. `worker` must already
+        // be one of the workers in AprClientOptions.Workers; the server
+        // otherwise ignores the update (see PROTOCOL.md).
+        public async Task PublishExtraAsync(string worker, object extra)
+        {
+            string json = JsonSerializer.Serialize(new { worker, extra });
+            if (_mqttClient != null && _mqttClient.IsConnected)
+            {
+                var message = new MqttApplicationMessageBuilder()
+                    .WithTopic("apr/node/extra")
+                    .WithPayload(json)
+                    .Build();
+                await _mqttClient.PublishAsync(message);
             }
         }
 

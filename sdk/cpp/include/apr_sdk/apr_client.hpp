@@ -57,6 +57,13 @@ public:
     void publish_app_event(const std::string& target_role, const std::string& worker, const std::string& payload);
     void subscribe_app_event(const std::string& target_role, const std::string& worker, app_event_callback cb);
 
+    // Announces (or replaces) `worker`'s extra data via apr/node/extra -
+    // usable at any point after start(), any number of times, without
+    // re-declaring role/workers/endpoint. `worker` must already be one of
+    // the workers passed in client_options; the server otherwise ignores
+    // the update (see PROTOCOL.md).
+    void publish_extra(const std::string& worker, const nlohmann::json& extra);
+
     void set_node_status_callback(node_status_callback cb);
 
 private:

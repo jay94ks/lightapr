@@ -31,6 +31,9 @@ export interface NodeInfo {
   added_at?: number;
   active_at?: number;
   expires_in?: number | null;
+  // Per-worker announcement data (apr/node/extra), keyed by worker name.
+  // Only workers that have published extra data appear as keys.
+  extra?: Record<string, any>;
 }
 
 export interface AprClientOptions {
@@ -164,6 +167,17 @@ export class AprClient extends EventEmitter {
       this.client.subscribe(topic);
     }
     this.on(`app_event:${topic}`, callback);
+  }
+
+  // Announces (or replaces) `worker`'s extra data via apr/node/extra - usable
+  // at any point after start(), any number of times, without re-declaring
+  // role/workers/endpoint. `worker` must already be one of the workers
+  // passed to the constructor; the server otherwise ignores the update (see
+  // PROTOCOL.md).
+  public publishExtra(worker: string, extra: Record<string, any>): void {
+    if (this.client) {
+      this.client.publish('apr/node/extra', JSON.stringify({ worker, extra }));
+    }
   }
 
   public getLocalRegistry(): NodeInfo[] {

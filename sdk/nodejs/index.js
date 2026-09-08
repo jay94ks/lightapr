@@ -131,6 +131,17 @@ class AprClient extends EventEmitter {
     this.on(`app_event:${topic}`, callback);
   }
 
+  // Announces (or replaces) `worker`'s extra data via apr/node/extra - usable
+  // at any point after start(), any number of times, without re-declaring
+  // role/workers/endpoint. `worker` must already be one of the workers
+  // passed to the constructor; the server otherwise ignores the update (see
+  // PROTOCOL.md).
+  publishExtra(worker, extra) {
+    if (this.client) {
+      this.client.publish('apr/node/extra', JSON.stringify({ worker, extra }));
+    }
+  }
+
   getLocalRegistry() {
     return Array.from(this.localNodes.values());
   }

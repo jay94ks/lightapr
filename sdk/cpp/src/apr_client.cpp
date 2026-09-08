@@ -205,6 +205,11 @@ public:
         status_cb_ = std::move(cb);
     }
 
+    void publish_extra(const std::string& worker, const nlohmann::json& extra) {
+        nlohmann::json j = {{"worker", worker}, {"extra", extra}};
+        send_publish("apr/node/extra", j.dump());
+    }
+
 private:
     void send_bytes(const std::vector<uint8_t>& packet) {
         if (is_websocket_) {
@@ -479,6 +484,10 @@ void apr_client::subscribe_app_event(const std::string& target_role, const std::
 
 void apr_client::set_node_status_callback(node_status_callback cb) {
     pimpl_->set_node_status_callback(std::move(cb));
+}
+
+void apr_client::publish_extra(const std::string& worker, const nlohmann::json& extra) {
+    pimpl_->publish_extra(worker, extra);
 }
 
 } // namespace apr::sdk
