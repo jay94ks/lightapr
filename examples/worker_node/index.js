@@ -19,6 +19,11 @@ async function main() {
     await client.start();
     console.log(`[Worker Node] Registered to LightAPR as role 'background-worker' (endpoint: null)`);
 
+    // Announce initial extra data for the "image-processor" worker. Unlike
+    // role/workers/endpoint, this can be republished at any point during the
+    // session - see the periodic update in the interval below.
+    client.publishExtra('image-processor', { status: 'idle', queueDepth: 0 });
+
     // Periodically resolve HTTP nodes and trigger app events
     setInterval(async () => {
       const resolved = client.resolveNode('api-service', 'auth');
@@ -34,6 +39,8 @@ async function main() {
       } else {
         console.log(`[Worker Node] No active 'api-service' node found in local registry.`);
       }
+
+      client.publishExtra('image-processor', { status: 'busy', queueDepth: Math.floor(Math.random() * 10) });
     }, 5000);
   } catch (err) {
     console.error(`[Worker Node] Error starting LightAPR client:`, err);

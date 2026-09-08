@@ -1,4 +1,5 @@
 #include "apr_sdk/apr_client.hpp"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -28,6 +29,11 @@ int main() {
     if (client.start()) {
         std::cout << "[C++ Worker Node] Registered to LightAPR as role 'cpp-worker' (endpoint: null, MQTT: " << opts.mqtt_url << ")" << std::endl;
 
+        // Announce initial extra data for the "compute-task" worker. Unlike
+        // role/workers/endpoint, this can be republished at any point during
+        // the session - see the periodic update inside the loop below.
+        client.publish_extra("compute-task", {{"status", "idle"}, {"jobs_handled", 0}});
+
         for (int i = 0; i < 3; ++i) {
             std::this_thread::sleep_for(std::chrono::seconds(2));
             auto target = client.resolve_node("cpp-api-service", "auth");
@@ -37,6 +43,8 @@ int main() {
             } else {
                 std::cout << "[C++ Worker Node] 'cpp-api-service' not found in local registry" << std::endl;
             }
+
+            client.publish_extra("compute-task", {{"status", "busy"}, {"jobs_handled", i + 1}});
         }
 
         client.stop();

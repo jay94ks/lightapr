@@ -35,6 +35,11 @@ server.listen(PORT, '127.0.0.1', async () => {
     await client.start();
     console.log(`[HTTP Node] Registered to LightAPR as role 'api-service' with endpoint port ${PORT}`);
 
+    // Announce extra data for the "auth" worker - visible to every node
+    // subscribed to apr/+ via apr/api-service, and via /registry and
+    // /resolve?role=api-service&worker=auth.
+    client.publishExtra('auth', { version: '1.0.0', region: 'local' });
+
     // Subscribe to application events
     client.subscribeAppEvent('api-service', 'auth', (payload, topic) => {
       console.log(`[HTTP Node] Received app event on ${topic}:`, payload);

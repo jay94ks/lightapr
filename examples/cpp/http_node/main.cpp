@@ -28,6 +28,11 @@ int main() {
     if (client.start()) {
         std::cout << "[C++ HTTP Node] Registered to LightAPR as role 'cpp-api-service' (endpoint: 3002, MQTT: " << opts.mqtt_url << ")" << std::endl;
 
+        // Announce extra data for the "auth" worker - visible to every node
+        // subscribed to apr/+ via apr/cpp-api-service, and via /registry
+        // and /resolve?role=cpp-api-service&worker=auth.
+        client.publish_extra("auth", {{"version", "1.0.0"}, {"region", "local"}});
+
         client.subscribe_app_event("cpp-api-service", "auth", [](const std::string& payload, const std::string& topic) {
             std::cout << "[C++ HTTP Node] Received app event on " << topic << ": " << payload << std::endl;
         });

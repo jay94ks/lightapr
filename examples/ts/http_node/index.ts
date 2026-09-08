@@ -33,6 +33,11 @@ server.listen(PORT, '127.0.0.1', async () => {
     await client.start();
     console.log(`[TS HTTP Node] Registered to LightAPR as role 'ts-api-service'`);
 
+    // Announce extra data for the "auth" worker - visible to every node
+    // subscribed to apr/+ via apr/ts-api-service, and via /registry and
+    // /resolve?role=ts-api-service&worker=auth.
+    client.publishExtra('auth', { version: '1.0.0', region: 'local' });
+
     client.subscribeAppEvent('ts-api-service', 'auth', (payload: any, topic: string) => {
       console.log(`[TS HTTP Node] App event on ${topic}:`, payload);
     });

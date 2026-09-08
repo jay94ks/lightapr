@@ -56,6 +56,11 @@ class Program
         await client.StartAsync();
         Console.WriteLine($"[C# HttpNode] Registered to LightAPR as role 'cs-api-service' (MQTT: {options.MqttUrl})");
 
+        // Announce extra data for the "auth" worker - visible to every node
+        // subscribed to apr/+ via apr/cs-api-service, and via /registry and
+        // /resolve?role=cs-api-service&worker=auth.
+        await client.PublishExtraAsync("auth", new { version = "1.0.0", region = "local" });
+
         client.SubscribeAppEvent("cs-api-service", "auth", (payload, topic) =>
         {
             Console.WriteLine($"[C# HttpNode] App event received on {topic}: {payload}");

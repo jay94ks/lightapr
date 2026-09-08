@@ -25,6 +25,11 @@ class Program
         await client.StartAsync();
         Console.WriteLine($"[C# WorkerNode] Registered to LightAPR as role 'cs-worker' (endpoint: null, MQTT: {options.MqttUrl})");
 
+        // Announce initial extra data for the "batch-processor" worker.
+        // Unlike role/workers/endpoint, this can be republished at any point
+        // during the session - see the periodic update in the loop below.
+        await client.PublishExtraAsync("batch-processor", new { status = "idle", jobsHandled = 0 });
+
         for (int i = 0; i < 3; i++)
         {
             await Task.Delay(2000);
@@ -38,6 +43,8 @@ class Program
             {
                 Console.WriteLine("[C# WorkerNode] 'cs-api-service' not found in local registry");
             }
+
+            await client.PublishExtraAsync("batch-processor", new { status = "busy", jobsHandled = i + 1 });
         }
 
         await client.StopAsync();
